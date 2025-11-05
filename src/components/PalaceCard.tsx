@@ -1,55 +1,30 @@
-import { Card } from './ui/card';
-import { Badge } from './ui/badge';
+import { Card } from "./ui/card";
 
 interface PalaceCardProps {
-  name: string;
+  title: string;
   element: string;
-  time: string;
-  guardian: string;
-  labels: string[];
+  shichen: string;
+  animal: string;
+  labelSelf?: string;
 }
 
-export function PalaceCard({ name, element, time, guardian, labels }: PalaceCardProps) {
+export function PalaceCard({ title, element, shichen, animal, labelSelf }: PalaceCardProps) {
+  const showLabel = Boolean(labelSelf);
+
   return (
-    <Card className="bg-white/80 backdrop-blur-sm border-stone-200/50 hover:shadow-lg transition-all duration-300 p-6 rounded-xl">
-      <div className="flex flex-col h-full">
-        {/* Title */}
-        <div className="text-center mb-6">
-          <h2 className="text-stone-800 tracking-wide">{name}</h2>
-        </div>
+    <Card className="palace-card bg-white/80 backdrop-blur-sm border-stone-200/50 hover:shadow-lg transition-all duration-300 p-6 rounded-xl text-center">
+      <h4 className="text-stone-800 tracking-wide mb-4">{title}</h4>
+      <p className="row-element text-stone-600 mb-2">{element}</p>
+      <p className="row-shichen text-stone-600 mb-2">{shichen}</p>
+      <p className="row-animal text-stone-600 mb-4">{animal}</p>
 
-        {/* Details */}
-        <div className="flex-1 space-y-3 mb-6">
-          <div className="text-center">
-            <p className="text-stone-500">{element}</p>
-          </div>
-          <div className="text-center">
-            <p className="text-stone-500">{time}</p>
-          </div>
-          <div className="text-center">
-            <p className="text-stone-500">{guardian}</p>
-          </div>
+      {showLabel && (
+        <div className="labels flex items-center justify-center">
+          <span className="label-self inline-flex items-center justify-center rounded-full border border-red-200 bg-red-50 px-4 py-1 text-sm font-bold tracking-wide text-red-600">
+            {labelSelf}
+          </span>
         </div>
-
-        {/* Labels */}
-        {labels.length > 0 && (
-          <div className="flex flex-wrap gap-2 justify-center pt-4 border-t border-stone-200/50">
-            {labels.map((label, index) => (
-              <Badge
-                key={index}
-                variant={label === '自身' ? 'default' : 'secondary'}
-                className={
-                  label === '自身'
-                    ? 'bg-amber-600 hover:bg-amber-700 text-white px-3 py-1 shadow-md shadow-amber-900/20'
-                    : 'bg-stone-200 text-stone-600 hover:bg-stone-300 px-3 py-1'
-                }
-              >
-                {label}
-              </Badge>
-            ))}
-          </div>
-        )}
-      </div>
+      )}
     </Card>
   );
 }
