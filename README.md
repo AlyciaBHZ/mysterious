@@ -4,7 +4,7 @@
 
 ## 🌟 在线演示
 
-🔗 **[立即体验](https://alyciabhz.github.io/mysterious/)**
+🔗 **[立即体验](https://mysterious.lexaverse.dev)**
 
 ## ✨ 功能特点
 
