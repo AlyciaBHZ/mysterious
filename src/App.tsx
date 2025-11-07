@@ -4,7 +4,6 @@ import { UserManual } from "./components/UserManual";
 import { Input } from "./components/ui/input";
 import { Label } from "./components/ui/label";
 import { Button } from "./components/ui/button";
-import { Globe } from "lucide-react";
 
 const TITLES = ["大安", "流连", "速喜", "赤口", "小吉", "空亡"];
 const ELEMENTS = ["木", "火", "土", "金", "水", "天空"];
@@ -111,15 +110,6 @@ export default function App() {
             </a>
             <span className="text-stone-400">/</span>
             <span className="text-stone-800 font-semibold">小六壬排盘</span>
-            <a
-              href="https://lexaverse.dev"
-              className="ml-2 inline-flex items-center gap-1 text-sm text-stone-500 hover:text-amber-600 transition-colors"
-              target="_blank"
-              rel="noopener noreferrer"
-              title="Back to LEXAVERSE"
-            >
-              <Globe className="h-4 w-4" />
-            </a>
           </div>
           <UserManual />
         </div>
