@@ -5,7 +5,7 @@ import { Input } from "./components/ui/input";
 import { Label } from "./components/ui/label";
 import { Button } from "./components/ui/button";
 
-const TITLES = ["大安", "流连", "速喜", "赤口", "小吉", "空亡"];
+const TITLES = ["大安", "留连", "速喜", "赤口", "小吉", "空亡"];
 const ELEMENTS = ["木", "火", "土", "金", "水", "天空"];
 const SHICHEN_NAMES = ["子", "丑", "寅", "卯", "辰", "巳", "午", "未", "申", "酉", "戌", "亥"];
 
@@ -116,7 +116,7 @@ export default function App() {
 
         <header className="text-center mb-16">
           <h1 className="text-stone-800 tracking-wide">小六壬排盘</h1>
-          <p className="text-stone-500 mt-4">输入 X1（1-30）和对应时辰，快速查看六宫落点、五行与神兽提示。</p>
+          <p className="text-stone-500 mt-4">输入 X1（1-30）和对应时辰，快速查看六宫落点、五行与神煞提示。</p>
         </header>
 
         <div className="bg-white/60 backdrop-blur-sm rounded-2xl shadow-sm border border-stone-200/50 p-8 mb-12">
