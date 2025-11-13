@@ -75,6 +75,7 @@ interface PalaceResult {
   shichen: string;
   animal: string;
   wuxing: string;
+  shichenBranch: string;
   relation?: string;
   labelSelf?: string;
 }
@@ -103,7 +104,7 @@ export default function App() {
     const x2PosIndex = (x1PosIndex + x2Value - 1) % 6;
     const selfShichenIndex = x2Value - 1;
 
-    const palaces = TITLES.map((title, index) => {
+    const palaces: PalaceResult[] = TITLES.map((title, index) => {
       const elementIndex = (index - x1PosIndex + 6) % 6;
       const shichenOffset = index - x2PosIndex + 6;
       const palaceShichenIndex = (selfShichenIndex + shichenOffset * 2) % 12;
@@ -117,6 +118,7 @@ export default function App() {
         wuxing: WUXING_MAP[shichenBranch],
         shichenBranch, // 保存时辰地支用于关系计算
         labelSelf: index === x2PosIndex ? "自身" : "",
+        relation: undefined,
       };
     });
 
@@ -137,34 +139,26 @@ export default function App() {
     const relations = shengKeMap[selfWuxing];
     const tuGongs = palaces.filter((p) => p.wuxing === "土" && p.shichenBranch !== selfShichen);
 
-    // 第一步：确定兄弟宫和父母宫（特殊规则）
+    // 第一步：确定兄弟宫（特殊规则）
     let xiongdiShichen: string | null = null;
-    let fumuShichen: string | null = null;
 
     if (selfWuxing === "土") {
       // 自身是土，另一个土是兄弟
       if (tuGongs.length > 0) {
         xiongdiShichen = tuGongs[0].shichenBranch;
       }
-      // 父母按五行生克：火生土
-      // fumuShichen 不在这里确定，后面按五行找
     } else {
       // 自身不是土，兄弟宫按特殊规则确定
       xiongdiShichen = XIONGDI_MAP[selfShichen];
-      // 父母宫是另一个土（不是兄弟宫的那个土）
-      const fumuTu = tuGongs.find((p) => p.shichenBranch !== xiongdiShichen);
-      if (fumuTu) {
-        fumuShichen = fumuTu.shichenBranch;
-      }
     }
 
-    // 第二步：为每个宫位标注关系
+    // 第二步：为每个宫位标注关系（按顺序，确保每个宫位只被标记一次）
     palaces.forEach((palace) => {
       if (palace.shichenBranch === selfShichen) {
         palace.relation = undefined; // 自身不显示关系文字
       } else if (palace.shichenBranch === xiongdiShichen) {
         palace.relation = "兄弟";
-      } else if (palace.shichenBranch === fumuShichen) {
+      } else if (palace.wuxing === relations.parent) {
         palace.relation = "父母";
       } else if (palace.wuxing === relations.child) {
         palace.relation = "子孙";
@@ -172,9 +166,6 @@ export default function App() {
         palace.relation = "妻财";
       } else if (palace.wuxing === relations.ghost) {
         palace.relation = "官鬼";
-      } else if (palace.wuxing === relations.parent) {
-        // 如果自身是土，父母是火
-        palace.relation = "父母";
       }
     });
 
