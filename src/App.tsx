@@ -24,6 +24,34 @@ const ANIMAL_MAP: Record<string, string> = {
   亥: "玄武",
 };
 
+// 时辰对应五行
+const WUXING_MAP: Record<string, string> = {
+  子: "水",
+  亥: "水",
+  寅: "木",
+  卯: "木",
+  巳: "火",
+  午: "火",
+  申: "金",
+  酉: "金",
+  丑: "土",
+  辰: "土",
+  未: "土",
+  戌: "土",
+};
+
+// 兄弟宫规则（当自身不是土时）
+const XIONGDI_MAP: Record<string, string> = {
+  子: "辰",
+  午: "戌",
+  卯: "未",
+  酉: "丑",
+  寅: "辰",
+  申: "戌",
+  巳: "未",
+  亥: "丑",
+};
+
 const HOURS = [
   { value: 1, label: "1 (子) 23:00-1:00" },
   { value: 2, label: "2 (丑) 1:00-3:00" },
@@ -46,6 +74,8 @@ interface PalaceResult {
   element: string;
   shichen: string;
   animal: string;
+  wuxing: string;
+  relation?: string;
   labelSelf?: string;
 }
 
@@ -84,8 +114,68 @@ export default function App() {
         element: ELEMENTS[elementIndex],
         shichen: `${shichenBranch}时`,
         animal: ANIMAL_MAP[shichenBranch],
+        wuxing: WUXING_MAP[shichenBranch],
+        shichenBranch, // 保存时辰地支用于关系计算
         labelSelf: index === x2PosIndex ? "自身" : "",
       };
+    });
+
+    // 计算宫位关系
+    const selfPalace = palaces[x2PosIndex];
+    const selfWuxing = selfPalace.wuxing;
+    const selfShichen = selfPalace.shichenBranch;
+
+    // 五行生克关系
+    const shengKeMap: Record<string, { parent: string; child: string; wife: string; ghost: string }> = {
+      木: { parent: "水", child: "火", wife: "土", ghost: "金" },
+      火: { parent: "木", child: "土", wife: "金", ghost: "水" },
+      土: { parent: "火", child: "金", wife: "水", ghost: "木" },
+      金: { parent: "土", child: "水", wife: "木", ghost: "火" },
+      水: { parent: "金", child: "木", wife: "火", ghost: "土" },
+    };
+
+    const relations = shengKeMap[selfWuxing];
+    const tuGongs = palaces.filter((p) => p.wuxing === "土" && p.shichenBranch !== selfShichen);
+
+    // 第一步：确定兄弟宫和父母宫（特殊规则）
+    let xiongdiShichen: string | null = null;
+    let fumuShichen: string | null = null;
+
+    if (selfWuxing === "土") {
+      // 自身是土，另一个土是兄弟
+      if (tuGongs.length > 0) {
+        xiongdiShichen = tuGongs[0].shichenBranch;
+      }
+      // 父母按五行生克：火生土
+      // fumuShichen 不在这里确定，后面按五行找
+    } else {
+      // 自身不是土，兄弟宫按特殊规则确定
+      xiongdiShichen = XIONGDI_MAP[selfShichen];
+      // 父母宫是另一个土（不是兄弟宫的那个土）
+      const fumuTu = tuGongs.find((p) => p.shichenBranch !== xiongdiShichen);
+      if (fumuTu) {
+        fumuShichen = fumuTu.shichenBranch;
+      }
+    }
+
+    // 第二步：为每个宫位标注关系
+    palaces.forEach((palace) => {
+      if (palace.shichenBranch === selfShichen) {
+        palace.relation = undefined; // 自身不显示关系文字
+      } else if (palace.shichenBranch === xiongdiShichen) {
+        palace.relation = "兄弟";
+      } else if (palace.shichenBranch === fumuShichen) {
+        palace.relation = "父母";
+      } else if (palace.wuxing === relations.child) {
+        palace.relation = "子孙";
+      } else if (palace.wuxing === relations.wife) {
+        palace.relation = "妻财";
+      } else if (palace.wuxing === relations.ghost) {
+        palace.relation = "官鬼";
+      } else if (palace.wuxing === relations.parent) {
+        // 如果自身是土，父母是火
+        palace.relation = "父母";
+      }
     });
 
     const orderedResult = GRID_ORDER.map((idx) => palaces[idx]);
@@ -184,6 +274,8 @@ export default function App() {
                 element={palace.element}
                 shichen={palace.shichen}
                 animal={palace.animal}
+                wuxing={palace.wuxing}
+                relation={palace.relation}
                 labelSelf={palace.labelSelf}
               />
             ))
