@@ -40,6 +40,7 @@ jobs:
         run: |
           cp src/config.local.example.ts src/config.local.ts
           cp src/core.logic.example.ts src/core.logic.ts
+          cp src/prompts.config.example.ts src/prompts.config.ts
 
       - name: Build
         run: npm run build

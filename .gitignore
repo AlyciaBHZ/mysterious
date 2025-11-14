@@ -23,6 +23,9 @@ src/config.local.ts
 # Core algorithm (proprietary)
 src/core.logic.ts
 
+# AI Prompt configuration (proprietary)
+src/prompts.config.ts
+
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*

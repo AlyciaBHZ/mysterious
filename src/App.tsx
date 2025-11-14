@@ -7,6 +7,7 @@ import { Button } from "./components/ui/button";
 import { DEFAULT_API_KEY, DEFAULT_AI_MODEL } from "./config.local";
 import { calculatePalace } from "./core.logic";
 import { PalaceResult } from "./types";
+import { generateDivinationPrompt, getCurrentDateTimeInfo } from "./prompts.config";
 
 const TITLES = ["大安", "留连", "速喜", "赤口", "小吉", "空亡"];
 const ELEMENTS = ["木", "火", "土", "金", "水", "天空"];
@@ -168,58 +169,27 @@ export default function App() {
 
     try {
       const selfPalace = result.find(p => p.labelSelf);
+      if (!selfPalace) {
+        throw new Error('未找到自身宫位');
+      }
+
+      // 获取当前日期和时辰
+      const { date: currentDate, shichen: currentShichen } = getCurrentDateTimeInfo();
+
+      // 格式化排盘结果
       const palaceList = result.map(p => {
         const relText = p.relation ? `【${p.relation}】` : p.labelSelf ? '【自身】' : '';
-        return `* ${p.title}宫：${p.element}、${p.shichen}、${p.animal}、${p.wuxing} ${relText}`;
+        return `* **${p.title}宫：** ${p.element}、${p.shichen}、${p.animal}、${p.wuxing} ${relText}`;
       });
 
-      const prompt = `你是一位精通【江氏小六壬】的顶级卜卦大师。你的解卦风格严谨、富有洞察力，同时又能用清晰、易懂的语言为问卦者指点迷津。
-
-请严格根据以下【排盘结果】和【所问事项】，给出一份详细、结构清晰、且完美格式化的卦象解析。
-
-【排盘结果】
-${palaceList.join('\n')}
-
-* **自身宫位：${selfPalace?.title}宫（${selfPalace?.wuxing}）**
-* **所问事项：${question}**
-
----
-
-【解卦分析】
-
-请严格按照以下结构进行分析，并使用指定的Markdown格式：
-
-### 一、 整体运势总论
-
-（请在此处用一两句精炼的话，对运势做出"吉"、"凶"、"平"或"吉凶参半"的总体判断，并点出核心主题。）
-
-### 二、 自身宫位与主卦解读
-
-（**重点分析：** 自身落入【${selfPalace?.title}宫】。请深入解读"${selfPalace?.title}"（${selfPalace?.element}、${selfPalace?.shichen}、${selfPalace?.animal}、${selfPalace?.wuxing}）的含义。结合【${selfPalace?.animal}】、【${selfPalace?.element}】等神煞，分析这对于"${question}"的总体影响。）
-
-### 三、 六亲关系与人际互动
-
-（请根据【父母】、【兄弟】、【妻财】、【官鬼】、【子孙】各自的宫位、五行和神煞，分析在相关方面可能发生的互动与吉凶。）
-${result.filter(p => p.relation).map(p => `* **${p.relation}（${p.title}）：** （请分析${p.title}宫、${p.wuxing}、${p.animal}对${p.relation}方面的影响）`).join('\n')}
-
-### 四、 五行生克与旺衰
-
-（请分析【自身】宫位的五行（${selfPalace?.wuxing}）与其他五宫五行的生克关系。例如：自身（${selfPalace?.wuxing}）被何宫所生、被何宫所克、生何宫、克何宫？这在运势上代表了"助力"、"压力"、"付出"还是"掌控"？)
-
-### 五、 建议与注意事项
-
-（根据以上所有分析，请给问卦者提供清晰、可执行的行动建议和需要规避的风险。）
-* **[吉] 趋吉建议：** （例如：宜...）
-* **[凶] 避凶指南：** （例如：忌... 特别注意...）
-
----
-
-【格式要求（必须遵守）】
-* 全程使用Markdown格式化。
-* 每个分析部分必须使用 ### 三级标题。
-* 所有关键结论或警示语，请使用 **** 粗体 **** 标出。
-* 在"六亲分析"和"建议"部分，请使用 * 符号创建项目符号列表。
-* **（最重要）** 标题与正文之间、段落与段落之间，必须保留一个空行，以确保网页浏览时的排版清晰、不拥挤。`;
+      // 使用 prompts.config.ts 中的专业 prompt
+      const prompt = generateDivinationPrompt(
+        question,
+        palaceList,
+        { title: selfPalace.title, wuxing: selfPalace.wuxing },
+        currentDate,
+        currentShichen
+      );
 
       const response = await callGeminiAPI(prompt);
       setAiResponse(response);
@@ -337,7 +307,7 @@ ${result.filter(p => p.relation).map(p => `* **${p.relation}（${p.title}）：*
 
         {/* 中式分隔符 */}
         {result && (
-          <div style={{ paddingTop: '60px', paddingBottom: '60px' }} className="flex flex-col items-center">
+          <div style={{ paddingTop: '36px', paddingBottom: '36px' }} className="flex flex-col items-center">
             {/* 装饰性分割线 */}
             <div className="w-full max-w-2xl relative">
               <div className="absolute inset-0 flex items-center" aria-hidden="true">
@@ -368,7 +338,7 @@ ${result.filter(p => p.relation).map(p => `* **${p.relation}（${p.title}）：*
             <div className="mb-8">
               <Label className="text-stone-700 mb-3 block font-semibold">您想问什么问题？</Label>
               <textarea
-                placeholder="例如：感情运势如何？事业发展怎么样？近期财运如何？"
+                placeholder={'请集中精神，一事一问。例如："今日财运如何？"、"我和TA的感情走向？"、"这份工作能成吗？"\n\n小六壬善断"当下"和"短期"吉凶，请把问题问得越具体越好。'}
                 value={question}
                 onChange={(e) => setQuestion(e.target.value)}
                 rows={4}

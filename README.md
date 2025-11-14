@@ -283,7 +283,7 @@ mysterious/
 ## 📮 联系我们
 
 - **项目主页**: https://mysterious.lexaverse.dev
-- **GitHub**: https://github.com/your-username/mysterious
+- **GitHub**: https://github.com/AlyciaBHZ/mysterious
 - **反馈建议**: 通过 GitHub Issues
 
 ---
