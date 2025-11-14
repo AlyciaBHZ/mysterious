@@ -1,9 +1,14 @@
-name: Deploy to GitHub Pages
+# 注意：此 workflow 仅用于示例版本部署
+# 完整功能版本需要本地构建并推送到 gh-pages 分支
+# 运行: npm run deploy
+
+name: Deploy Example Version to GitHub Pages
 
 on:
-  push:
-    branches:
-      - main
+  # 不自动触发，避免覆盖完整版本
+  # push:
+  #   branches:
+  #     - main
   workflow_dispatch:
 
 permissions:
@@ -31,7 +36,7 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Prepare config files
+      - name: Prepare config files (Example Version)
         run: |
           cp src/config.local.example.ts src/config.local.ts
           cp src/core.logic.example.ts src/core.logic.ts
