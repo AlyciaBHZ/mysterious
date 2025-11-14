@@ -1,9 +1,12 @@
-import { useState } from "react";
+import React, { useState } from "react";
 import { PalaceCard } from "./components/PalaceCard";
 import { UserManual } from "./components/UserManual";
 import { Input } from "./components/ui/input";
 import { Label } from "./components/ui/label";
 import { Button } from "./components/ui/button";
+import { DEFAULT_API_KEY, DEFAULT_AI_MODEL } from "./config.local";
+import { calculatePalace } from "./core.logic";
+import { PalaceResult } from "./types";
 
 const TITLES = ["大安", "留连", "速喜", "赤口", "小吉", "空亡"];
 const ELEMENTS = ["木", "火", "土", "金", "水", "天空"];
@@ -24,33 +27,7 @@ const ANIMAL_MAP: Record<string, string> = {
   亥: "玄武",
 };
 
-// 时辰对应五行
-const WUXING_MAP: Record<string, string> = {
-  子: "水",
-  亥: "水",
-  寅: "木",
-  卯: "木",
-  巳: "火",
-  午: "火",
-  申: "金",
-  酉: "金",
-  丑: "土",
-  辰: "土",
-  未: "土",
-  戌: "土",
-};
-
-// 兄弟宫规则（当自身不是土时）
-const XIONGDI_MAP: Record<string, string> = {
-  子: "辰",
-  午: "戌",
-  卯: "未",
-  酉: "丑",
-  寅: "辰",
-  申: "戌",
-  巳: "未",
-  亥: "丑",
-};
+// 核心数据映射已移至 core.logic.ts（私有文件）
 
 const HOURS = [
   { value: 1, label: "1 (子) 23:00-1:00" },
@@ -69,22 +46,20 @@ const HOURS = [
 
 const GRID_ORDER = [1, 2, 3, 0, 5, 4];
 
-interface PalaceResult {
-  title: string;
-  element: string;
-  shichen: string;
-  animal: string;
-  wuxing: string;
-  shichenBranch: string;
-  relation?: string;
-  labelSelf?: string;
-}
-
 export default function App() {
   const [x1, setX1] = useState("");
   const [x2, setX2] = useState("");
   const [result, setResult] = useState<PalaceResult[] | null>(null);
   const [error, setError] = useState("");
+  
+  // AI解卦相关状态
+  const [aiModel, setAiModel] = useState<'gemini' | 'claude'>(DEFAULT_AI_MODEL);
+  const [apiKey, setApiKey] = useState<string>(() => {
+    return localStorage.getItem('ai_api_key') || DEFAULT_API_KEY;
+  });
+  const [question, setQuestion] = useState<string>("");
+  const [aiResponse, setAiResponse] = useState<string>("");
+  const [isAiLoading, setIsAiLoading] = useState<boolean>(false);
 
   const handleCalculate = () => {
     if (!x1 || !x2) return;
@@ -100,77 +75,160 @@ export default function App() {
 
     setError("");
 
-    const x1PosIndex = (x1Value - 1) % 6;
-    const x2PosIndex = (x1PosIndex + x2Value - 1) % 6;
-    const selfShichenIndex = x2Value - 1;
+    // 调用核心排盘算法（来自 core.logic.ts）
+    const orderedResult = calculatePalace(
+      x1Value,
+      x2Value,
+      TITLES,
+      ELEMENTS,
+      SHICHEN_NAMES,
+      ANIMAL_MAP,
+      GRID_ORDER
+    );
 
-    const palaces: PalaceResult[] = TITLES.map((title, index) => {
-      const elementIndex = (index - x1PosIndex + 6) % 6;
-      const shichenOffset = index - x2PosIndex + 6;
-      const palaceShichenIndex = (selfShichenIndex + shichenOffset * 2) % 12;
-      const shichenBranch = SHICHEN_NAMES[palaceShichenIndex];
+    setResult(orderedResult);
+  };
 
-      return {
-        title,
-        element: ELEMENTS[elementIndex],
-        shichen: `${shichenBranch}时`,
-        animal: ANIMAL_MAP[shichenBranch],
-        wuxing: WUXING_MAP[shichenBranch],
-        shichenBranch, // 保存时辰地支用于关系计算
-        labelSelf: index === x2PosIndex ? "自身" : "",
-        relation: undefined,
-      };
+  // 生成排盘描述文本
+  const generatePalaceDescription = (): string => {
+    if (!result) return '';
+    
+    const selfPalace = result.find(p => p.labelSelf);
+    const descriptions = result.map(p => {
+      const relText = p.relation ? `【${p.relation}】` : p.labelSelf ? '【自身】' : '';
+      return `${p.title}宫：${p.element}、${p.shichen}、${p.animal}、${p.wuxing} ${relText}`;
     });
+    
+    return `当前排盘结果：\n${descriptions.join('\n')}\n\n自身宫位：${selfPalace?.title}宫（${selfPalace?.wuxing}）`;
+  };
 
-    // 计算宫位关系
-    const selfPalace = palaces[x2PosIndex];
-    const selfWuxing = selfPalace.wuxing;
-    const selfShichen = selfPalace.shichenBranch;
-
-    // 五行生克关系
-    const shengKeMap: Record<string, { parent: string; child: string; wife: string; ghost: string }> = {
-      木: { parent: "水", child: "火", wife: "土", ghost: "金" },
-      火: { parent: "木", child: "土", wife: "金", ghost: "水" },
-      土: { parent: "火", child: "金", wife: "水", ghost: "木" },
-      金: { parent: "土", child: "水", wife: "木", ghost: "火" },
-      水: { parent: "金", child: "木", wife: "火", ghost: "土" },
-    };
-
-    const relations = shengKeMap[selfWuxing];
-    const tuGongs = palaces.filter((p) => p.wuxing === "土" && p.shichenBranch !== selfShichen);
-
-    // 第一步：确定兄弟宫（特殊规则）
-    let xiongdiShichen: string | null = null;
-
-    if (selfWuxing === "土") {
-      // 自身是土，另一个土是兄弟
-      if (tuGongs.length > 0) {
-        xiongdiShichen = tuGongs[0].shichenBranch;
+  // 调用Gemini API
+  const callGeminiAPI = async (prompt: string): Promise<string> => {
+    const response = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents: [{ parts: [{ text: prompt }] }]
+        })
       }
-    } else {
-      // 自身不是土，兄弟宫按特殊规则确定
-      xiongdiShichen = XIONGDI_MAP[selfShichen];
+    );
+
+    const data = await response.json();
+    
+    if (!response.ok) {
+      const errorMsg = data.error?.message || response.statusText || '未知错误';
+      throw new Error(`Gemini API 错误: ${errorMsg}`);
     }
 
-    // 第二步：为每个宫位标注关系（按顺序，确保每个宫位只被标记一次）
-    palaces.forEach((palace) => {
-      if (palace.shichenBranch === selfShichen) {
-        palace.relation = undefined; // 自身不显示关系文字
-      } else if (palace.shichenBranch === xiongdiShichen) {
-        palace.relation = "兄弟";
-      } else if (palace.wuxing === relations.parent) {
-        palace.relation = "父母";
-      } else if (palace.wuxing === relations.child) {
-        palace.relation = "子孙";
-      } else if (palace.wuxing === relations.wife) {
-        palace.relation = "妻财";
-      } else if (palace.wuxing === relations.ghost) {
-        palace.relation = "官鬼";
-      }
+    return data.candidates[0]?.content?.parts[0]?.text || '无法获取回复';
+  };
+
+  // 调用Claude API
+  const callClaudeAPI = async (prompt: string): Promise<string> => {
+    const response = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': apiKey,
+        'anthropic-version': '2023-06-01'
+      },
+      body: JSON.stringify({
+        model: 'claude-3-5-sonnet-20241022',
+        max_tokens: 2048,
+        messages: [{ role: 'user', content: prompt }]
+      })
     });
 
-    const orderedResult = GRID_ORDER.map((idx) => palaces[idx]);
-    setResult(orderedResult);
+    const data = await response.json();
+    
+    if (!response.ok) {
+      const errorMsg = data.error?.message || response.statusText || '未知错误';
+      throw new Error(`Claude API 错误: ${errorMsg}`);
+    }
+
+    return data.content[0]?.text || '无法获取回复';
+  };
+
+  // AI解卦
+  const handleAIDivination = async () => {
+    if (!question.trim()) {
+      alert('请输入您想问的问题！');
+      return;
+    }
+
+    if (!result) {
+      alert('请先完成排盘！');
+      return;
+    }
+
+    setIsAiLoading(true);
+    setAiResponse('');
+
+    try {
+      const selfPalace = result.find(p => p.labelSelf);
+      const palaceList = result.map(p => {
+        const relText = p.relation ? `【${p.relation}】` : p.labelSelf ? '【自身】' : '';
+        return `* ${p.title}宫：${p.element}、${p.shichen}、${p.animal}、${p.wuxing} ${relText}`;
+      });
+
+      const prompt = `你是一位精通【江氏小六壬】的顶级卜卦大师。你的解卦风格严谨、富有洞察力，同时又能用清晰、易懂的语言为问卦者指点迷津。
+
+请严格根据以下【排盘结果】和【所问事项】，给出一份详细、结构清晰、且完美格式化的卦象解析。
+
+【排盘结果】
+${palaceList.join('\n')}
+
+* **自身宫位：${selfPalace?.title}宫（${selfPalace?.wuxing}）**
+* **所问事项：${question}**
+
+---
+
+【解卦分析】
+
+请严格按照以下结构进行分析，并使用指定的Markdown格式：
+
+### 一、 整体运势总论
+
+（请在此处用一两句精炼的话，对运势做出"吉"、"凶"、"平"或"吉凶参半"的总体判断，并点出核心主题。）
+
+### 二、 自身宫位与主卦解读
+
+（**重点分析：** 自身落入【${selfPalace?.title}宫】。请深入解读"${selfPalace?.title}"（${selfPalace?.element}、${selfPalace?.shichen}、${selfPalace?.animal}、${selfPalace?.wuxing}）的含义。结合【${selfPalace?.animal}】、【${selfPalace?.element}】等神煞，分析这对于"${question}"的总体影响。）
+
+### 三、 六亲关系与人际互动
+
+（请根据【父母】、【兄弟】、【妻财】、【官鬼】、【子孙】各自的宫位、五行和神煞，分析在相关方面可能发生的互动与吉凶。）
+${result.filter(p => p.relation).map(p => `* **${p.relation}（${p.title}）：** （请分析${p.title}宫、${p.wuxing}、${p.animal}对${p.relation}方面的影响）`).join('\n')}
+
+### 四、 五行生克与旺衰
+
+（请分析【自身】宫位的五行（${selfPalace?.wuxing}）与其他五宫五行的生克关系。例如：自身（${selfPalace?.wuxing}）被何宫所生、被何宫所克、生何宫、克何宫？这在运势上代表了"助力"、"压力"、"付出"还是"掌控"？)
+
+### 五、 建议与注意事项
+
+（根据以上所有分析，请给问卦者提供清晰、可执行的行动建议和需要规避的风险。）
+* **[吉] 趋吉建议：** （例如：宜...）
+* **[凶] 避凶指南：** （例如：忌... 特别注意...）
+
+---
+
+【格式要求（必须遵守）】
+* 全程使用Markdown格式化。
+* 每个分析部分必须使用 ### 三级标题。
+* 所有关键结论或警示语，请使用 **** 粗体 **** 标出。
+* 在"六亲分析"和"建议"部分，请使用 * 符号创建项目符号列表。
+* **（最重要）** 标题与正文之间、段落与段落之间，必须保留一个空行，以确保网页浏览时的排版清晰、不拥挤。`;
+
+      const response = await callGeminiAPI(prompt);
+      setAiResponse(response);
+    } catch (error) {
+      console.error('AI解卦错误:', error);
+      setAiResponse(`解卦失败：${error instanceof Error ? error.message : '未知错误'}\n\n请检查网络连接是否正常。`);
+    } finally {
+      setIsAiLoading(false);
+    }
   };
 
   const isFormReady = Boolean(x1 && x2);
@@ -276,6 +334,168 @@ export default function App() {
             </div>
           )}
         </div>
+
+        {/* 中式分隔符 */}
+        {result && (
+          <div style={{ paddingTop: '60px', paddingBottom: '60px' }} className="flex flex-col items-center">
+            {/* 装饰性分割线 */}
+            <div className="w-full max-w-2xl relative">
+              <div className="absolute inset-0 flex items-center" aria-hidden="true">
+                <div className="w-full border-t-2 border-gradient"></div>
+              </div>
+              <div className="relative flex justify-center">
+                <div className="bg-gradient-to-r from-amber-400 via-amber-600 to-amber-400 h-1 w-64 rounded-full opacity-60"></div>
+              </div>
+            </div>
+            {/* 向下箭头 */}
+            <div className="mt-8 animate-bounce">
+              <svg className="w-10 h-10 text-amber-600" fill="none" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" viewBox="0 0 24 24" stroke="currentColor">
+                <path d="M19 14l-7 7m0 0l-7-7m7 7V3"></path>
+              </svg>
+            </div>
+            <p className="mt-4 text-base text-stone-600 tracking-wide font-medium">继续向下，开启AI智能解卦</p>
+          </div>
+        )}
+
+        {/* AI解卦区域 */}
+        {result && (
+          <div className="mt-8 bg-white/80 backdrop-blur-sm border border-stone-200/50 rounded-2xl p-8 shadow-lg">
+            <h3 className="text-2xl font-bold text-center text-stone-800 mb-6">
+              🔮 AI智能解卦
+            </h3>
+
+            {/* 问题输入区域 */}
+            <div className="mb-8">
+              <Label className="text-stone-700 mb-3 block font-semibold">您想问什么问题？</Label>
+              <textarea
+                placeholder="例如：感情运势如何？事业发展怎么样？近期财运如何？"
+                value={question}
+                onChange={(e) => setQuestion(e.target.value)}
+                rows={4}
+                className="w-full px-6 py-5 border-2 border-stone-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-amber-500 resize-none text-stone-700 leading-relaxed text-base shadow-sm"
+              />
+            </div>
+
+            {/* 解卦按钮 */}
+            <div className="flex justify-center mb-8">
+              <Button
+                onClick={handleAIDivination}
+                disabled={isAiLoading || !question}
+                style={{ 
+                  backgroundColor: isAiLoading || !question ? '#e5e7eb' : '#FFFBEB',
+                  color: '#000000',
+                  border: '2px solid #f59e0b'
+                }}
+                className="hover:bg-amber-100 font-bold px-12 py-6 text-xl shadow-xl hover:shadow-2xl transition-all duration-300 disabled:cursor-not-allowed disabled:opacity-60 rounded-xl"
+              >
+                {isAiLoading ? (
+                  <span className="flex items-center gap-3">
+                    <svg className="animate-spin h-6 w-6" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                    </svg>
+                    正在解卦中...
+                  </span>
+                ) : '✨ 开始AI解卦'}
+              </Button>
+            </div>
+
+            {/* 太极图加载动画 */}
+            {isAiLoading && (
+              <div className="flex flex-col items-center justify-center py-12 mb-8">
+                {/* 太极图SVG动画 */}
+                <div className="relative w-24 h-24">
+                  <svg className="animate-spin" style={{ animationDuration: '3s' }} viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">
+                    {/* 外圈 */}
+                    <circle cx="50" cy="50" r="48" fill="none" stroke="#d97706" strokeWidth="2" opacity="0.3"/>
+                    
+                    {/* 太极阴阳 */}
+                    <g>
+                      {/* 阳（白色半圆） */}
+                      <path d="M 50 2 A 48 48 0 0 1 50 98 A 24 24 0 0 1 50 50 A 24 24 0 0 0 50 2" fill="#ffffff" stroke="#000000" strokeWidth="1"/>
+                      
+                      {/* 阴（黑色半圆） */}
+                      <path d="M 50 2 A 48 48 0 0 0 50 98 A 24 24 0 0 0 50 50 A 24 24 0 0 1 50 2" fill="#000000"/>
+                      
+                      {/* 阳中阴（黑点） */}
+                      <circle cx="50" cy="26" r="6" fill="#000000"/>
+                      
+                      {/* 阴中阳（白点） */}
+                      <circle cx="50" cy="74" r="6" fill="#ffffff"/>
+                    </g>
+                    
+                    {/* 八卦符号环绕 */}
+                    <g className="animate-spin" style={{ animationDuration: '6s', animationDirection: 'reverse', transformOrigin: 'center' }}>
+                      {[0, 45, 90, 135, 180, 225, 270, 315].map((angle, i) => (
+                        <text 
+                          key={i}
+                          x="50" 
+                          y="12" 
+                          fontSize="8" 
+                          fill="#d97706" 
+                          textAnchor="middle" 
+                          transform={`rotate(${angle} 50 50)`}
+                        >
+                          ☰
+                        </text>
+                      ))}
+                    </g>
+                  </svg>
+                </div>
+                
+                {/* 加载文案 */}
+                <p className="mt-6 text-xl font-semibold text-stone-700 tracking-wide animate-pulse">
+                  卦象已成，洞察天机中...
+                </p>
+                <p className="mt-2 text-sm text-stone-500">
+                  AI大师正在为您解读卦象
+                </p>
+              </div>
+            )}
+
+            {/* 解卦结果显示 */}
+            {aiResponse && !isAiLoading && (
+              <div className="p-8 bg-gradient-to-br from-purple-50 to-amber-50 rounded-xl border border-purple-200/50 shadow-md">
+                <h4 className="text-2xl font-bold text-purple-800 mb-6 flex items-center gap-2 border-b border-purple-200 pb-3">
+                  📖 卦象解析
+                </h4>
+                <div className="max-w-none overflow-hidden">
+                  <div 
+                    className="break-words text-stone-800 font-sans text-base"
+                    style={{
+                      lineHeight: '1.8',
+                    }}
+                    dangerouslySetInnerHTML={{
+                      __html: aiResponse
+                        // 先清理多余的连续换行（3个及以上换行统一为2个）
+                        .replace(/\n{3,}/g, '\n\n')
+                        // 处理标题（标题前加空行，标题后不加空行）
+                        .replace(/\n*(###\s+.*?)(?=\n|$)/g, '\n\n<h3 class="text-xl font-bold text-purple-900 mt-8 mb-2">$1</h3>')
+                        // 移除标题开头的###标记
+                        .replace(/<h3 class="text-xl font-bold text-purple-900 mt-8 mb-2">###\s+(.*?)<\/h3>/g, '<h3 class="text-xl font-bold text-purple-900 mt-8 mb-2">$1</h3>')
+                        // 处理粗体（四星和双星）
+                        .replace(/\*\*\*\*(.*?)\*\*\*\*/g, '<strong class="font-bold text-red-600">$1</strong>')
+                        .replace(/\*\*(.*?)\*\*/g, '<strong class="font-semibold text-stone-900">$1</strong>')
+                        // 处理列表
+                        .replace(/^\* (.*?)$/gm, '<li class="ml-6 my-1 list-disc">$1</li>')
+                        // 处理分隔线
+                        .replace(/---/g, '<hr class="my-6 border-purple-200" />')
+                        // 处理段落（双换行 = 段落间距）
+                        .replace(/\n\n/g, '</p><p class="mb-3">')
+                        // 处理单换行
+                        .replace(/\n/g, '<br />')
+                        // 包裹在段落标签中
+                        .replace(/^/, '<p class="mb-3">')
+                        .replace(/$/, '</p>')
+                        // 清理可能的空段落
+                        .replace(/<p class="mb-3"><\/p>/g, '')
+                    }}
+                  />
+                </div>
+              </div>
+            )}
+          </div>
+        )}
       </div>
     </div>
   );
