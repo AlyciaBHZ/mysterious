@@ -8,6 +8,7 @@ import { DEFAULT_API_KEY, DEFAULT_AI_MODEL } from "./config.local";
 import { calculatePalace } from "./core.logic";
 import { PalaceResult } from "./types";
 import { generateDivinationPrompt, getCurrentDateTimeInfo } from "./prompts.config";
+import { getTranslation, type Language } from "./i18n/translations";
 
 const TITLES = ["大安", "留连", "速喜", "赤口", "小吉", "空亡"];
 const ELEMENTS = ["木", "火", "土", "金", "水", "天空"];
@@ -30,24 +31,15 @@ const ANIMAL_MAP: Record<string, string> = {
 
 // 核心数据映射已移至 core.logic.ts（私有文件）
 
-const HOURS = [
-  { value: 1, label: "1 (子) 23:00-1:00" },
-  { value: 2, label: "2 (丑) 1:00-3:00" },
-  { value: 3, label: "3 (寅) 3:00-5:00" },
-  { value: 4, label: "4 (卯) 5:00-7:00" },
-  { value: 5, label: "5 (辰) 7:00-9:00" },
-  { value: 6, label: "6 (巳) 9:00-11:00" },
-  { value: 7, label: "7 (午) 11:00-13:00" },
-  { value: 8, label: "8 (未) 13:00-15:00" },
-  { value: 9, label: "9 (申) 15:00-17:00" },
-  { value: 10, label: "10 (酉) 17:00-19:00" },
-  { value: 11, label: "11 (戌) 19:00-21:00" },
-  { value: 12, label: "12 (亥) 21:00-23:00" },
-];
-
 const GRID_ORDER = [1, 2, 3, 0, 5, 4];
 
 export default function App() {
+  // 语言状态
+  const [language, setLanguage] = useState<Language>(() => {
+    return (localStorage.getItem('preferred_language') as Language) || 'zh';
+  });
+  const t = getTranslation(language);
+
   const [x1, setX1] = useState("");
   const [x2, setX2] = useState("");
   const [result, setResult] = useState<PalaceResult[] | null>(null);
@@ -62,6 +54,13 @@ export default function App() {
   const [aiResponse, setAiResponse] = useState<string>("");
   const [isAiLoading, setIsAiLoading] = useState<boolean>(false);
 
+  // 切换语言
+  const toggleLanguage = () => {
+    const newLang: Language = language === 'zh' ? 'en' : 'zh';
+    setLanguage(newLang);
+    localStorage.setItem('preferred_language', newLang);
+  };
+
   const handleCalculate = () => {
     if (!x1 || !x2) return;
 
@@ -69,7 +68,7 @@ export default function App() {
     const x2Value = Number(x2);
 
     if (Number.isNaN(x1Value) || x1Value < 1 || x1Value > 30) {
-      setError("X1 需要在 1-30 之间");
+      setError(t.form.errorX1Range);
       setResult(null);
       return;
     }
@@ -155,12 +154,12 @@ export default function App() {
   // AI解卦
   const handleAIDivination = async () => {
     if (!question.trim()) {
-      alert('请输入您想问的问题！');
+      alert(t.ai.alertNoQuestion);
       return;
     }
 
     if (!result) {
-      alert('请先完成排盘！');
+      alert(t.ai.alertNoResult);
       return;
     }
 
@@ -174,28 +173,35 @@ export default function App() {
       }
 
       // 获取当前日期和时辰
-      const { date: currentDate, shichen: currentShichen } = getCurrentDateTimeInfo();
+      const { date: currentDate, shichen: currentShichen } = getCurrentDateTimeInfo(language);
 
-      // 格式化排盘结果
+      // 格式化排盘结果（翻译宫位和关系名称）
       const palaceList = result.map(p => {
-        const relText = p.relation ? `【${p.relation}】` : p.labelSelf ? '【自身】' : '';
-        return `* **${p.title}宫：** ${p.element}、${p.shichen}、${p.animal}、${p.wuxing} ${relText}`;
+        const relationKey = p.relation as keyof typeof t.relations | undefined;
+        const relText = relationKey ? `【${t.relations[relationKey]}】` : 
+                       p.labelSelf ? `【${t.relations.自身}】` : '';
+        const palaceKey = p.title as keyof typeof t.palaces;
+        const elementKey = p.element as keyof typeof t.elements;
+        const animalKey = p.animal as keyof typeof t.animals;
+        
+        return `* **${t.palaces[palaceKey]}：** ${t.elements[elementKey]}、${p.shichen}、${t.animals[animalKey]}、${p.wuxing} ${relText}`;
       });
 
-      // 使用 prompts.config.ts 中的专业 prompt
+      // 使用 prompts.config.ts 中的专业 prompt，传入语言参数
       const prompt = generateDivinationPrompt(
         question,
         palaceList,
         { title: selfPalace.title, wuxing: selfPalace.wuxing },
         currentDate,
-        currentShichen
+        currentShichen,
+        language
       );
 
       const response = await callGeminiAPI(prompt);
       setAiResponse(response);
     } catch (error) {
       console.error('AI解卦错误:', error);
-      setAiResponse(`解卦失败：${error instanceof Error ? error.message : '未知错误'}\n\n请检查网络连接是否正常。`);
+      setAiResponse(`${t.ai.errorPrefix}${error instanceof Error ? error.message : '未知错误'}${t.ai.errorSuffix}`);
     } finally {
       setIsAiLoading(false);
     }
@@ -218,14 +224,27 @@ export default function App() {
               LEXAVERSE
             </a>
             <span className="text-stone-400">/</span>
-            <span className="text-stone-800 font-semibold">小六壬排盘</span>
+            <span className="text-stone-800 font-semibold">{t.nav.title}</span>
           </div>
-          <UserManual />
+          <div className="flex items-center gap-4">
+            {/* 语言切换按钮 */}
+            <button
+              onClick={toggleLanguage}
+              className="px-4 py-2 rounded-lg bg-white/80 border border-stone-300 hover:border-amber-500 transition-all duration-200 text-stone-700 font-medium flex items-center gap-2"
+              title={language === 'zh' ? 'Switch to English' : '切换到中文'}
+            >
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 5h12M9 3v2m1.048 9.5A18.022 18.022 0 016.412 9m6.088 9h7M11 21l5-10 5 10M12.751 5C11.783 10.77 8.07 15.61 3 18.129" />
+              </svg>
+              {language === 'zh' ? 'EN' : '中文'}
+            </button>
+            <UserManual />
+          </div>
         </div>
 
         <header className="text-center mb-16">
-          <h1 className="text-stone-800 tracking-wide">小六壬排盘</h1>
-          <p className="text-stone-500 mt-4">输入 X1（1-30）和对应时辰，快速查看六宫落点、五行与神煞提示。</p>
+          <h1 className="text-stone-800 tracking-wide">{t.nav.title}</h1>
+          <p className="text-stone-500 mt-4">{t.nav.subtitle}</p>
         </header>
 
         <div className="bg-white/60 backdrop-blur-sm rounded-2xl shadow-sm border border-stone-200/50 p-8 mb-12">
@@ -233,7 +252,7 @@ export default function App() {
             <div className="grid grid-cols-1 md:grid-cols-2 gap-8 mb-8">
               <div className="space-y-3">
                 <Label htmlFor="x1" className="text-stone-700">
-                  X1
+                  {t.form.x1Label}
                 </Label>
                 <Input
                   id="x1"
@@ -242,7 +261,7 @@ export default function App() {
                   max="30"
                   value={x1}
                   onChange={(event) => setX1(event.target.value)}
-                  placeholder="1-30"
+                  placeholder={t.form.x1Placeholder}
                   className="border-stone-300 focus:border-amber-600 focus:ring-amber-600/20"
                   aria-invalid={error ? "true" : "false"}
                 />
@@ -251,7 +270,7 @@ export default function App() {
 
               <div className="space-y-3">
                 <Label htmlFor="x2" className="text-stone-700">
-                  时辰 (X2)
+                  {t.form.x2Label}
                 </Label>
                 <select
                   id="x2"
@@ -260,9 +279,9 @@ export default function App() {
                   className="border border-stone-300 rounded-md px-3 py-2 w-full bg-white text-stone-700 focus:border-amber-600 focus:ring-amber-600/20"
                 >
                   <option value="" disabled>
-                    选择对应时辰
+                    {t.form.x2Placeholder}
                   </option>
-                  {HOURS.map((option) => (
+                  {t.hours.map((option) => (
                     <option key={option.value} value={option.value}>
                       {option.label}
                     </option>
@@ -278,7 +297,7 @@ export default function App() {
                 disabled={!isFormReady}
                 className="bg-amber-600 hover:bg-amber-700 text-white px-12 py-6 shadow-lg shadow-amber-900/10 disabled:opacity-50 disabled:cursor-not-allowed transition-all"
               >
-                开始排盘
+                {t.form.calculateButton}
               </Button>
             </div>
           </div>
@@ -300,7 +319,7 @@ export default function App() {
             ))
           ) : (
             <div className="col-span-3 text-center py-20 text-stone-400">
-              <p>输入完成后点击「开始排盘」查看六宫结果</p>
+              <p>{t.form.emptyResult}</p>
             </div>
           )}
         </div>
@@ -323,7 +342,7 @@ export default function App() {
                 <path d="M19 14l-7 7m0 0l-7-7m7 7V3"></path>
               </svg>
             </div>
-            <p className="mt-4 text-base text-stone-600 tracking-wide font-medium">继续向下，开启AI智能解卦</p>
+            <p className="mt-4 text-base text-stone-600 tracking-wide font-medium">{t.ai.dividerText}</p>
           </div>
         )}
 
@@ -331,18 +350,18 @@ export default function App() {
         {result && (
           <div className="mt-8 bg-white/80 backdrop-blur-sm border border-stone-200/50 rounded-2xl p-8 shadow-lg">
             <h3 className="text-2xl font-bold text-center text-stone-800 mb-6">
-              🔮 AI智能解卦
+              {t.ai.title}
             </h3>
 
             {/* 问题输入区域 */}
             <div className="mb-8">
-              <Label className="text-stone-700 mb-3 block font-semibold">您想问什么问题？</Label>
+              <Label className="text-stone-700 mb-3 block font-semibold">{t.ai.questionLabel}</Label>
               <textarea
-                placeholder={'请集中精神，一事一问。例如："今日财运如何？"、"我和TA的感情走向？"、"这份工作能成吗？"\n\n小六壬善断"当下"和"短期"吉凶，请把问题问得越具体越好。'}
+                placeholder={t.ai.questionPlaceholder}
                 value={question}
                 onChange={(e) => setQuestion(e.target.value)}
                 rows={4}
-                className="w-full px-6 py-5 border-2 border-stone-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-amber-500 resize-none text-stone-700 leading-relaxed text-base shadow-sm"
+                className="w-full pt-8 pb-5  px-6 border-2 border-stone-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-amber-500 resize-none text-stone-700 leading-relaxed text-base shadow-sm"
               />
             </div>
 
@@ -364,9 +383,9 @@ export default function App() {
                       <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
                       <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
                     </svg>
-                    正在解卦中...
+                    {t.ai.loadingButton}
                   </span>
-                ) : '✨ 开始AI解卦'}
+                ) : t.ai.startButton}
               </Button>
             </div>
 
@@ -415,10 +434,10 @@ export default function App() {
                 
                 {/* 加载文案 */}
                 <p className="mt-6 text-xl font-semibold text-stone-700 tracking-wide animate-pulse">
-                  卦象已成，洞察天机中...
+                  {t.ai.loadingText}
                 </p>
                 <p className="mt-2 text-sm text-stone-500">
-                  AI大师正在为您解读卦象
+                  {t.ai.loadingSubtext}
                 </p>
               </div>
             )}
@@ -427,7 +446,7 @@ export default function App() {
             {aiResponse && !isAiLoading && (
               <div className="p-8 bg-gradient-to-br from-purple-50 to-amber-50 rounded-xl border border-purple-200/50 shadow-md">
                 <h4 className="text-2xl font-bold text-purple-800 mb-6 flex items-center gap-2 border-b border-purple-200 pb-3">
-                  📖 卦象解析
+                  {t.ai.resultTitle}
                 </h4>
                 <div className="max-w-none overflow-hidden">
                   <div 
