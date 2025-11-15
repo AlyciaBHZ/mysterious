@@ -238,7 +238,7 @@ export default function App() {
               </svg>
               {language === 'zh' ? 'EN' : '中文'}
             </button>
-            <UserManual />
+            {language === 'zh' && <UserManual />}
           </div>
         </div>
 
