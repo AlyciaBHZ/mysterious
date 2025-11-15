@@ -303,9 +303,9 @@ export default function App() {
           </div>
         </div>
 
-        <div id="result-grid" className="grid grid-cols-3 gap-6">
-          {result ? (
-            result.map((palace, index) => (
+        {result ? (
+          <div id="result-grid" className="grid grid-cols-3 gap-6">
+            {result.map((palace, index) => (
               <PalaceCard
                 key={`${palace.title}-${index}`}
                 title={palace.title}
@@ -316,13 +316,13 @@ export default function App() {
                 relation={palace.relation}
                 labelSelf={palace.labelSelf}
               />
-            ))
-          ) : (
-            <div className="col-span-3 text-center py-20 text-stone-400">
-              <p>{t.form.emptyResult}</p>
-            </div>
-          )}
-        </div>
+            ))}
+          </div>
+        ) : (
+          <div className="text-center py-20">
+            <p className="text-stone-500 text-lg max-w-4xl mx-auto">{t.form.emptyResult}</p>
+          </div>
+        )}
 
         {/* 中式分隔符 */}
         {result && (
