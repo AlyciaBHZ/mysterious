@@ -1,10 +1,10 @@
-import React, { useState, useEffect } from "react";
+import React, { useMemo, useRef, useState, useEffect } from "react";
 import { PalaceCard } from "./components/PalaceCard";
 import { UserManual } from "./components/UserManual";
 import { PricingModal } from "./components/PricingModal";
 import { RedeemCodeModal } from "./components/RedeemCodeModal";
-import { ChatHistoryModal } from "./components/ChatHistoryModal";
 import { AuthModal } from "./components/AuthModal";
+import { SidebarSheet } from "./components/SidebarSheet";
 import { Input } from "./components/ui/input";
 import { Label } from "./components/ui/label";
 import { Button } from "./components/ui/button";
@@ -12,7 +12,7 @@ import { calculatePalace } from "./core.logic";
 import { PalaceResult } from "./types";
 import { generateDivinationPrompt, getCurrentDateTimeInfo } from "./prompts.config";
 import { getTranslation, type Language } from "./i18n/translations";
-import { callGeminiAPI as callGeminiAPIService, confirmCheckout, createCheckout, getUserStatus, me } from "./services/api";
+import { callGeminiAPI as callGeminiAPIService, confirmCheckout, createCheckout, getQuota, getUserStatus, me } from "./services/api";
 import { QuotaManager, PLAN_CONFIG, type UserQuota } from "./services/quota";
 
 const TITLES = ["大安", "留连", "速喜", "赤口", "小吉", "空亡"];
@@ -55,12 +55,21 @@ export default function App() {
   const [aiResponse, setAiResponse] = useState<string>("");
   const [isAiLoading, setIsAiLoading] = useState<boolean>(false);
   const [showRawAiResponse, setShowRawAiResponse] = useState<boolean>(false);
+  const chatScrollRef = useRef<HTMLDivElement | null>(null);
+
+  type ChatMsg = { id: string; role: 'user' | 'assistant'; content: string; createdAt: number };
+  const [chatMessages, setChatMessages] = useState<ChatMsg[]>([]);
+
+  const isLoggedIn = useMemo(() => {
+    const t = localStorage.getItem('session_token');
+    return Boolean(t);
+  }, [authedEmail]);
 
   // 付费功能状态
   const [userQuota, setUserQuota] = useState<UserQuota>(QuotaManager.getQuota());
   const [showPricing, setShowPricing] = useState(false);
   const [showRedeemCode, setShowRedeemCode] = useState(false);
-  const [showChatHistory, setShowChatHistory] = useState(false);
+  const [showSidebar, setShowSidebar] = useState(false);
   const [showAuth, setShowAuth] = useState(false);
   const [authedEmail, setAuthedEmail] = useState<string | null>(null);
   const [pendingPlanId, setPendingPlanId] = useState<string | null>(null);
@@ -90,6 +99,14 @@ export default function App() {
     // Load current user (for showing login state)
     me().then((r) => {
       if (r.ok && r.user?.email) setAuthedEmail(r.user.email);
+    }).catch(() => {});
+
+    // Promotion: sync monthly quota for logged-in users
+    getQuota().then((q) => {
+      if (q.ok && q.plan && typeof q.total === 'number' && typeof q.remaining === 'number') {
+        QuotaManager.setQuotaFromServer({ plan: q.plan, total: q.total, remaining: q.remaining });
+        setUserQuota(QuotaManager.getQuota());
+      }
     }).catch(() => {});
 
     // Handle payment confirmation after redirect
@@ -204,6 +221,15 @@ export default function App() {
     try {
       // Used by backend to persist chat history (best-effort)
       localStorage.setItem('mysterious_last_question', question.trim());
+      localStorage.setItem('guest_mode', localStorage.getItem('session_token') ? '0' : (localStorage.getItem('guest_mode') || '1'));
+
+      const userMsg: ChatMsg = {
+        id: `u-${Date.now()}`,
+        role: 'user',
+        content: question.trim(),
+        createdAt: Date.now(),
+      };
+      setChatMessages((prev) => [...prev, userMsg]);
 
       const selfPalace = result.find(p => p.labelSelf);
       if (!selfPalace) {
@@ -249,6 +275,14 @@ export default function App() {
 
       setAiResponse(data.result);
       setShowRawAiResponse(false);
+
+      const assistantMsg: ChatMsg = {
+        id: `a-${Date.now()}`,
+        role: 'assistant',
+        content: data.result,
+        createdAt: Date.now(),
+      };
+      setChatMessages((prev) => [...prev, assistantMsg]);
     } catch (error) {
       console.error('AI解卦错误:', error);
       setAiResponse(`${t.ai.errorPrefix}${error instanceof Error ? error.message : '未知错误'}${t.ai.errorSuffix}`);
@@ -256,6 +290,13 @@ export default function App() {
       setIsAiLoading(false);
     }
   };
+
+  useEffect(() => {
+    // Auto-scroll chat window to bottom
+    const el = chatScrollRef.current;
+    if (!el) return;
+    el.scrollTop = el.scrollHeight;
+  }, [chatMessages.length, isAiLoading]);
 
   const handleCopyAiResponse = async () => {
     try {
@@ -460,6 +501,16 @@ export default function App() {
 
             {/* 额度显示和付费按钮 */}
             <div className="flex justify-center items-stretch gap-3 flex-wrap mb-8">
+              {/* 侧滑菜单按钮（移动端优先） */}
+              <button
+                onClick={() => setShowSidebar(true)}
+                className="px-4 py-3.5 rounded-2xl bg-white border-2 border-stone-200 hover:border-stone-300 shadow-sm hover:shadow-md transition-all duration-200 flex items-center gap-2 text-stone-800 justify-center"
+                title="菜单"
+              >
+                <span className="text-lg">☰</span>
+                <span className="text-base font-semibold hidden sm:inline">菜单</span>
+              </button>
+
               {/* 额度显示 */}
               <div className="px-6 py-3.5 rounded-2xl bg-white border-2 border-stone-200 flex items-center gap-3 shadow-sm hover:shadow-md transition-all duration-200 min-w-[180px]">
                 <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-blue-100 to-purple-100 flex items-center justify-center">
@@ -488,7 +539,7 @@ export default function App() {
 
               {/* 历史对话按钮（需要登录后才有内容） */}
               <button
-                onClick={() => setShowChatHistory(true)}
+                onClick={() => setShowSidebar(true)}
                 className="px-6 py-3.5 rounded-2xl bg-white border-2 border-stone-200 hover:border-blue-300 hover:bg-blue-50 font-semibold shadow-sm hover:shadow-md transition-all duration-200 flex items-center gap-2.5 text-stone-800 min-w-[140px] justify-center"
               >
                 <div className="w-9 h-9 rounded-lg bg-gradient-to-br from-blue-100 to-cyan-100 flex items-center justify-center">
@@ -516,39 +567,98 @@ export default function App() {
             </div>
 
             {/* 问题输入区域 */}
-            <div className="mb-8">
-              <Label className="text-stone-700 mb-3 block font-semibold">{t.ai.questionLabel}</Label>
-              <textarea
-                placeholder={t.ai.questionPlaceholder}
-                value={question}
-                onChange={(e) => setQuestion(e.target.value)}
-                rows={4}
-                className="w-full pt-8 pb-5  px-6 border-2 border-stone-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-amber-500 resize-none text-stone-700 leading-relaxed text-base shadow-sm"
-              />
-            </div>
-
-            {/* 解卦按钮 */}
-            <div className="flex justify-center mb-8">
-              <Button
-                onClick={handleAIDivination}
-                disabled={isAiLoading || !question}
-                style={{ 
-                  backgroundColor: isAiLoading || !question ? '#e5e7eb' : '#FFFBEB',
-                  color: '#000000',
-                  border: '2px solid #f59e0b'
-                }}
-                className="hover:bg-amber-100 font-bold px-12 py-6 text-xl shadow-xl hover:shadow-2xl transition-all duration-300 disabled:cursor-not-allowed disabled:opacity-60 rounded-xl"
+            <div className="rounded-xl border border-stone-200 bg-white/70 shadow-sm overflow-hidden">
+              {/* Chat window */}
+              <div
+                ref={chatScrollRef}
+                className="max-h-[55vh] md:max-h-[60vh] overflow-y-auto p-4 space-y-3 bg-gradient-to-br from-stone-50 to-white"
               >
-                {isAiLoading ? (
-                  <span className="flex items-center gap-3">
-                    <svg className="animate-spin h-6 w-6" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                    </svg>
-                    {t.ai.loadingButton}
-                  </span>
-                ) : t.ai.startButton}
-              </Button>
+                {!chatMessages.length && (
+                  <div className="text-sm text-stone-600">
+                    {isLoggedIn ? '已登录：本月 10 次免费（白名单不计费）。' : '游客模式：每天最多 3 次（不保存历史）。'}
+                  </div>
+                )}
+                {chatMessages.map((m) => (
+                  <div key={m.id} className={`flex ${m.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+                    <div
+                      className={`max-w-[92%] md:max-w-[80%] rounded-2xl px-4 py-3 text-sm leading-relaxed ${
+                        m.role === 'user'
+                          ? 'bg-amber-100 border border-amber-200 text-stone-900'
+                          : 'bg-white border border-stone-200 text-stone-900'
+                      }`}
+                    >
+                      {m.role === 'assistant' && !showRawAiResponse ? (
+                        <div
+                          className="break-words"
+                          style={{ lineHeight: '1.8' }}
+                          dangerouslySetInnerHTML={{
+                            __html: m.content
+                              .replace(/\n{3,}/g, '\n\n')
+                              .replace(/\n*(###\s+.*?)(?=\n|$)/g, '\n\n<h3 class="text-base font-bold text-purple-900 mt-4 mb-2">$1</h3>')
+                              .replace(/<h3 class="text-base font-bold text-purple-900 mt-4 mb-2">###\s+(.*?)<\/h3>/g, '<h3 class="text-base font-bold text-purple-900 mt-4 mb-2">$1</h3>')
+                              .replace(/\*\*\*\*(.*?)\*\*\*\*/g, '<strong class="font-bold text-red-600">$1</strong>')
+                              .replace(/\*\*(.*?)\*\*/g, '<strong class="font-semibold text-stone-900">$1</strong>')
+                              .replace(/^\* (.*?)$/gm, '<li class="ml-5 my-1 list-disc">$1</li>')
+                              .replace(/---/g, '<hr class="my-4 border-purple-200" />')
+                              .replace(/\n\n/g, '</p><p class="mb-2">')
+                              .replace(/\n/g, '<br />')
+                              .replace(/^/, '<p class="mb-2">')
+                              .replace(/$/, '</p>')
+                              .replace(/<p class="mb-2"><\/p>/g, ''),
+                          }}
+                        />
+                      ) : (
+                        <pre className="whitespace-pre-wrap break-words font-sans">{m.content}</pre>
+                      )}
+                    </div>
+                  </div>
+                ))}
+                {isAiLoading && (
+                  <div className="text-sm text-stone-500">AI 解卦中...</div>
+                )}
+              </div>
+
+              {/* Composer */}
+              <div className="p-3 border-t border-stone-200 bg-white">
+                <div className="flex items-end gap-2">
+                  <div className="flex-1">
+                    <Label className="sr-only">{t.ai.questionLabel}</Label>
+                    <textarea
+                      placeholder={t.ai.questionPlaceholder}
+                      value={question}
+                      onChange={(e) => setQuestion(e.target.value)}
+                      rows={2}
+                      className="w-full px-4 py-3 border border-stone-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-amber-500 resize-none text-stone-700 leading-relaxed text-base"
+                    />
+                    <p className="mt-2 text-xs text-stone-500">{t.ai.hourlyHint}</p>
+                  </div>
+                  <Button
+                    onClick={handleAIDivination}
+                    disabled={isAiLoading || !question}
+                    className="bg-amber-600 hover:bg-amber-700 text-white font-bold rounded-xl px-5 py-3"
+                  >
+                    {isAiLoading ? '发送中…' : (language === 'en' ? 'Send' : '发送')}
+                  </Button>
+                </div>
+
+                <div className="mt-2 flex items-center justify-between gap-2 flex-wrap">
+                  <button
+                    type="button"
+                    onClick={() => setShowRawAiResponse((v) => !v)}
+                    className="text-xs px-3 py-1.5 rounded-lg bg-stone-100 border border-stone-200 hover:bg-stone-200 transition-colors text-stone-800 font-semibold"
+                  >
+                    {showRawAiResponse ? (language === 'en' ? 'Formatted' : '格式化') : (language === 'en' ? 'Raw' : '原文')}
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={handleCopyAiResponse}
+                    className="text-xs px-3 py-1.5 rounded-lg bg-stone-100 border border-stone-200 hover:bg-stone-200 transition-colors text-stone-800 font-semibold"
+                  >
+                    {language === 'en' ? 'Copy last' : '复制最后一条'}
+                  </button>
+                </div>
+              </div>
             </div>
 
             {/* 太极图加载动画 */}
@@ -687,12 +797,24 @@ export default function App() {
           onSuccess={handleRedeemSuccess}
         />
 
-        <ChatHistoryModal
-          open={showChatHistory}
-          onClose={() => setShowChatHistory(false)}
+        <SidebarSheet
+          open={showSidebar}
+          onClose={() => setShowSidebar(false)}
+          authedEmail={authedEmail}
+          onOpenAuth={() => setShowAuth(true)}
+          onLogout={() => {
+            localStorage.removeItem('session_token');
+            setAuthedEmail(null);
+            // keep guest_mode on
+            localStorage.setItem('guest_mode', '1');
+          }}
           onLoad={({ question, answer }) => {
             setQuestion(question);
             setAiResponse(answer);
+            setChatMessages([
+              { id: `u-${Date.now()}-h`, role: 'user', content: question, createdAt: Date.now() },
+              { id: `a-${Date.now()}-h`, role: 'assistant', content: answer, createdAt: Date.now() },
+            ]);
             setShowRawAiResponse(false);
           }}
         />

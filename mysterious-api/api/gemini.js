@@ -181,6 +181,116 @@ function checkIPLimit(ip) {
   return { allowed: true, remaining: 2 - count };
 }
 
+function getWhitelistEmails() {
+  return (process.env.WHITELIST_EMAILS || '')
+    .split(',')
+    .map((s) => s.trim().toLowerCase())
+    .filter(Boolean);
+}
+
+function currentMonth() {
+  return new Date().toISOString().slice(0, 7); // YYYY-MM
+}
+
+const MONTHLY_FREE_TOTAL = 10;
+
+const SESSION_DECR_LUA = `
+local key = KEYS[1]
+local month = ARGV[1]
+local freeTotal = tonumber(ARGV[2])
+local isWhitelist = ARGV[3]
+
+if isWhitelist == "1" then
+  return {999999, "whitelist", 999999}
+end
+
+local plan = redis.call("HGET", key, "plan")
+if (not plan) then
+  plan = "free"
+  redis.call("HSET", key, "plan", plan)
+end
+
+-- monthly reset for free users
+if plan == "free" then
+  local resetMonth = redis.call("HGET", key, "resetMonth")
+  if (not resetMonth) or resetMonth ~= month then
+    redis.call("HSET", key, "resetMonth", month, "total", tostring(freeTotal), "remaining", tostring(freeTotal))
+  end
+end
+
+local rem = redis.call("HGET", key, "remaining")
+if (not rem) then
+  if plan == "free" then
+    rem = freeTotal
+    redis.call("HSET", key, "total", tostring(freeTotal), "remaining", tostring(freeTotal), "resetMonth", month)
+  else
+    rem = 0
+  end
+end
+rem = tonumber(rem) or 0
+
+if rem <= 0 then
+  return {0, plan, tonumber(redis.call("HGET", key, "total") or "0")}
+end
+
+local newrem = redis.call("HINCRBY", key, "remaining", -1)
+local total = tonumber(redis.call("HGET", key, "total") or "0")
+return {newrem, plan, total}
+`.trim();
+
+async function consumeSessionQuota({ uid, isWhitelist }) {
+  if (hasRedis()) {
+    const key = `user:${uid}`;
+    const result = await redisCmd([
+      'EVAL',
+      SESSION_DECR_LUA,
+      '1',
+      key,
+      currentMonth(),
+      String(MONTHLY_FREE_TOTAL),
+      isWhitelist ? '1' : '0',
+    ]);
+    const [remaining, plan, total] = Array.isArray(result) ? result : [];
+    return { remaining: Number(remaining || 0), plan: String(plan || 'free'), total: Number(total || 0), storage: 'redis' };
+  }
+
+  // Memory fallback
+  if (isWhitelist) return { remaining: 999999, plan: 'whitelist', total: 999999, storage: 'memory' };
+  const month = currentMonth();
+  const u = memoryUsers.get(uid) || { plan: 'free', total: MONTHLY_FREE_TOTAL, remaining: MONTHLY_FREE_TOTAL, resetMonth: month };
+
+  if ((u.plan || 'free') === 'free' && u.resetMonth !== month) {
+    u.plan = 'free';
+    u.total = MONTHLY_FREE_TOTAL;
+    u.remaining = MONTHLY_FREE_TOTAL;
+    u.resetMonth = month;
+  }
+
+  if (Number(u.remaining || 0) <= 0) {
+    memoryUsers.set(uid, u);
+    return { remaining: 0, plan: u.plan || 'free', total: Number(u.total || 0), storage: 'memory' };
+  }
+
+  u.remaining = Number(u.remaining || 0) - 1;
+  memoryUsers.set(uid, u);
+  return { remaining: u.remaining, plan: u.plan || 'free', total: Number(u.total || 0), storage: 'memory' };
+}
+
+async function refundSessionQuota(uid) {
+  if (hasRedis()) {
+    try {
+      await redisCmd(['HINCRBY', `user:${uid}`, 'remaining', '1']);
+    } catch {
+      // ignore
+    }
+    return;
+  }
+  const u = memoryUsers.get(uid);
+  if (!u) return;
+  u.remaining = Number(u.remaining || 0) + 1;
+  memoryUsers.set(uid, u);
+}
+
 const PAID_DECR_LUA = `
 local key = KEYS[1]
 local rem = redis.call("HGET", key, "remaining")
@@ -265,56 +375,97 @@ export default async function handler(req, res) {
       return res.status(400).json({ error: 'Prompt is required' });
     }
     
-    // Phase 1: 只做IP限流（免费用户）
-    // Phase 2: 添加付费用户验证
+    // Promotion rule:
+    // - If logged-in (session token), use per-user monthly quota (10/month) and whitelist exemption.
+    // - Else: fallback to legacy flows (paid userToken, or IP-limit for anonymous free).
+    const session = getSessionFromRequest(req);
+    const whitelist = getWhitelistEmails();
+    const isWhitelist = Boolean(session && whitelist.includes(String(session.email).toLowerCase()));
+
+    if (session) {
+      const q = await consumeSessionQuota({ uid: session.uid, isWhitelist });
+      if (q.plan !== 'whitelist' && q.remaining <= 0) {
+        return res.status(429).json({
+          error: '额度不足',
+          message: '本月免费次数已用完，请购买套餐继续使用（白名单用户不计费）',
+          remaining: 0,
+          plan: q.plan,
+          total: q.total,
+        });
+      }
+
+      try {
+        const { text: result, model } = await callGemini(prompt);
+
+        // Save chat history (best-effort)
+        if (question && typeof question === 'string') {
+          const title = String(question).trim().slice(0, 32) || '未命名问题';
+          const record = {
+            id: String(Date.now()) + '-' + Math.random().toString(16).slice(2),
+            createdAt: new Date().toISOString(),
+            title,
+            question: String(question),
+            answer: result,
+            plan: q.plan,
+          };
+          if (hasRedis()) {
+            try {
+              await redisCmd(['SET', `chat:${session.uid}:${record.id}`, JSON.stringify(record)]);
+              await redisCmd(['LPUSH', `chat:list:${session.uid}`, record.id]);
+              await redisCmd(['LTRIM', `chat:list:${session.uid}`, '0', '49']);
+            } catch {
+              // ignore
+            }
+          } else {
+            const arr = memoryChats.get(session.uid) || [];
+            arr.unshift(record);
+            memoryChats.set(session.uid, arr.slice(0, 50));
+          }
+        }
+
+        return res.json({
+          success: true,
+          result,
+          remaining: q.remaining,
+          plan: q.plan,
+          total: q.total,
+          model,
+          storage: q.storage,
+        });
+      } catch (e) {
+        // If we charged a quota (non-whitelist), refund on failure
+        if (!isWhitelist) {
+          await refundSessionQuota(session.uid);
+        }
+        throw e;
+      }
+    }
+
+    // Legacy: anonymous guest (IP limit) / Phase 2 paid userToken
     if (!userToken || userToken === 'free') {
-      // 免费用户：IP限流
+      // 游客：IP限流（2-3次，默认3次/天）
       const ip = req.headers['x-forwarded-for'] || req.headers['x-real-ip'] || 'unknown';
       const limitCheck = checkIPLimit(ip);
       
       if (!limitCheck.allowed) {
         return res.status(429).json({
-          error: '今日免费额度已用完',
-          message: '升级套餐享受更多次数',
+          error: '游客额度已用完',
+          message: '游客额度已用完（每天3次）。登录可获得每月10次免费，且可保存历史。',
           remaining: 0,
+          total: 3,
+          plan: 'guest',
         });
       }
       
       // 调用Gemini
       const { text: result, model } = await callGemini(prompt);
-
-      // Logged-in users: save chat history even for free usage (best-effort)
-      const session = getSessionFromRequest(req);
-      if (session && question && typeof question === 'string') {
-        const title = String(question).trim().slice(0, 32) || '未命名问题';
-        const record = {
-          id: String(Date.now()) + '-' + Math.random().toString(16).slice(2),
-          createdAt: new Date().toISOString(),
-          title,
-          question: String(question),
-          answer: result,
-          plan: 'free',
-        };
-        if (hasRedis()) {
-          try {
-            await redisCmd(['SET', `chat:${session.uid}:${record.id}`, JSON.stringify(record)]);
-            await redisCmd(['LPUSH', `chat:list:${session.uid}`, record.id]);
-            await redisCmd(['LTRIM', `chat:list:${session.uid}`, '0', '49']);
-          } catch {
-            // ignore chat save errors
-          }
-        } else {
-          const arr = memoryChats.get(session.uid) || [];
-          arr.unshift(record);
-          memoryChats.set(session.uid, arr.slice(0, 50));
-        }
-      }
       
       return res.json({
         success: true,
         result,
         remaining: limitCheck.remaining,
-        plan: 'free',
+        total: 3,
+        plan: 'guest',
         model,
       });
     }
@@ -349,33 +500,6 @@ export default async function handler(req, res) {
 
     try {
       const { text: result, model } = await callGemini(prompt);
-
-      // Logged-in users: save chat history (best-effort)
-      const session = getSessionFromRequest(req);
-      if (session && question && typeof question === 'string') {
-        const title = String(question).trim().slice(0, 32) || '未命名问题';
-        const record = {
-          id: String(Date.now()) + '-' + Math.random().toString(16).slice(2),
-          createdAt: new Date().toISOString(),
-          title,
-          question: String(question),
-          answer: result,
-          plan: quota.plan,
-        };
-        if (hasRedis()) {
-          try {
-            await redisCmd(['SET', `chat:${session.uid}:${record.id}`, JSON.stringify(record)]);
-            await redisCmd(['LPUSH', `chat:list:${session.uid}`, record.id]);
-            await redisCmd(['LTRIM', `chat:list:${session.uid}`, '0', '49']);
-          } catch {
-            // ignore chat save errors
-          }
-        } else {
-          const arr = memoryChats.get(session.uid) || [];
-          arr.unshift(record);
-          memoryChats.set(session.uid, arr.slice(0, 50));
-        }
-      }
 
       return res.json({
         success: true,

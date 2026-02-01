@@ -123,6 +123,22 @@ export async function callGeminiAPI(
   }
 }
 
+export async function getQuota(): Promise<{ ok: boolean; plan?: string; total?: number; remaining?: number; message?: string }> {
+  const session = safeGetLocalStorageItem('session_token');
+  if (!session) return { ok: false, message: '未登录' };
+  try {
+    const res = await fetch(`${API_BASE_URL}/quota`, {
+      method: 'GET',
+      headers: { Authorization: `Bearer ${session}` },
+    });
+    const data = await res.json();
+    if (!res.ok || !data?.ok) return { ok: false, message: data?.message || '获取失败' };
+    return { ok: true, plan: data?.plan, total: data?.total, remaining: data?.remaining };
+  } catch (e) {
+    return { ok: false, message: e instanceof Error ? e.message : '网络错误' };
+  }
+}
+
 // -------------------------
 // Auth (user system)
 // -------------------------

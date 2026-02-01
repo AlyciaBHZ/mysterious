@@ -34,7 +34,7 @@ export function AuthModal(props: { open: boolean; onClose: () => void; onAuthed:
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
           <DialogTitle className="text-xl font-bold">{mode === 'login' ? '登录' : '注册'}</DialogTitle>
-          <DialogDescription>用于购买、同步额度、加载历史对话</DialogDescription>
+          <DialogDescription>登录后可保存/加载历史对话，并获得每月免费次数</DialogDescription>
         </DialogHeader>
 
         <div className="space-y-4 mt-4">
@@ -74,6 +74,20 @@ export function AuthModal(props: { open: boolean; onClose: () => void; onAuthed:
 
           <Button onClick={submit} disabled={loading} className="w-full bg-amber-600 hover:bg-amber-700">
             {loading ? '处理中...' : mode === 'login' ? '登录' : '注册'}
+          </Button>
+
+          <div className="text-xs text-stone-600">
+            不想登录也可以继续使用游客模式（每天最多 3 次，且不保存历史）。
+          </div>
+          <Button
+            type="button"
+            onClick={() => {
+              localStorage.setItem('guest_mode', '1');
+              onClose();
+            }}
+            className="w-full bg-stone-200 hover:bg-stone-300 text-stone-900"
+          >
+            继续以游客使用
           </Button>
         </div>
       </DialogContent>

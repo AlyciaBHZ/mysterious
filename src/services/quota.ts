@@ -4,7 +4,7 @@
  * 管理用户的使用额度、套餐和兑换码验证
  */
 
-export type PlanType = 'free' | 'trial' | 'basic' | 'standard' | 'pro';
+export type PlanType = 'guest' | 'free' | 'trial' | 'basic' | 'standard' | 'pro' | 'whitelist';
 
 export interface UserQuota {
   plan: PlanType;
@@ -17,12 +17,26 @@ export interface UserQuota {
 
 // 套餐配置
 export const PLAN_CONFIG = {
-  free: {
-    name: '免费体验',
+  guest: {
+    name: '游客',
     quota: 3,
     price: 0,
-    description: '每日3次免费解卦',
+    description: '游客模式（不保存历史）',
     period: 'daily',
+  },
+  free: {
+    name: '推广期免费',
+    quota: 10,
+    price: 0,
+    description: '每月10次免费解卦（推广期）',
+    period: 'monthly',
+  },
+  whitelist: {
+    name: '白名单',
+    quota: 999999,
+    price: 0,
+    description: '白名单用户不计费',
+    period: 'unlimited',
   },
   trial: {
     name: '体验包',
@@ -69,10 +83,10 @@ export class QuotaManager {
     
     const quota: UserQuota = JSON.parse(stored);
     
-    // 如果是免费用户，检查是否需要重置（每日重置）
+    // 如果是免费用户，检查是否需要重置（每月重置）
     if (quota.plan === 'free') {
-      const today = new Date().toISOString().split('T')[0];
-      if (quota.resetDate !== today) {
+      const month = new Date().toISOString().slice(0, 7); // YYYY-MM
+      if (quota.resetDate !== month) {
         return this.createFreeQuota();
       }
     }
@@ -104,14 +118,15 @@ export class QuotaManager {
       plan,
       total: Number(payload.total || 0),
       remaining: Number(payload.remaining || 0),
-      resetDate: today,
+      // free uses month marker; others keep date for display only
+      resetDate: plan === 'free' ? new Date().toISOString().slice(0, 7) : today,
       activatedAt: payload.activatedAt || undefined,
       activationCode: payload.activationCode,
     };
 
-    // Free plan: always treat as daily reset with total=3 if not provided.
+    // Free plan: monthly 10 as default
     if (plan === 'free') {
-      quota.total = quota.total || 3;
+      quota.total = quota.total || 10;
     }
 
     this.setQuota(quota);
@@ -122,12 +137,12 @@ export class QuotaManager {
    * 创建免费用户额度
    */
   private static createFreeQuota(): UserQuota {
-    const today = new Date().toISOString().split('T')[0];
+    const month = new Date().toISOString().slice(0, 7); // YYYY-MM
     const quota: UserQuota = {
       plan: 'free',
-      total: 3,
-      remaining: 3,
-      resetDate: today,
+      total: 10,
+      remaining: 10,
+      resetDate: month,
     };
     
     localStorage.setItem(this.STORAGE_KEY, JSON.stringify(quota));

@@ -67,6 +67,7 @@ export interface Translations {
     dividerText: string;
     questionLabel: string;
     questionPlaceholder: string;
+    hourlyHint: string;
     startButton: string;
     loadingButton: string;
     loadingText: string;
@@ -145,6 +146,7 @@ export const translations: Record<Language, Translations> = {
       dividerText: '继续向下，开启AI智能解卦',
       questionLabel: '您想问什么问题？',
       questionPlaceholder: '请集中精神，一事一问。例如："今日财运如何？"、"我和TA的感情走向？"、"这份工作能成吗？"\n\n小六壬善断"当下"和"短期"吉凶，请把问题问得越具体越好。',
+      hourlyHint: '备注：每个用户每小时对同一件事情，最好只起一个卦。',
       startButton: '✨ 开始AI解卦',
       loadingButton: '正在解卦中...',
       loadingText: '卦象已成，洞察天机中...',
@@ -221,6 +223,7 @@ export const translations: Record<Language, Translations> = {
       dividerText: 'Continue below for AI-powered divination',
       questionLabel: 'What would you like to ask?',
       questionPlaceholder: 'Focus your mind on one question. Examples: "How is my fortune today?", "What is the future of my relationship?", "Will this job work out?"\n\nXiao Liuren specializes in "current" and "short-term" fortune. Please be as specific as possible.',
+      hourlyHint: 'Note: For the same matter, it is best to cast only one divination per hour.',
       startButton: '✨ Start AI Reading',
       loadingButton: 'Reading in progress...',
       loadingText: 'Hexagram formed, interpreting cosmic wisdom...',

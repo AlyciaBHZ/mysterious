@@ -48,7 +48,7 @@ export default async function handler(req, res) {
       const userKey = `auth:user:${uid}`;
       await redisCmd(['HSET', userKey, 'email', email, 'passwordHash', passwordHash, 'createdAt', createdAt]);
  
-      // Initialize quota fields for convenience
+      // Initialize quota fields for convenience (promotion: 10 free / month)
       const quotaKey = `user:${uid}`;
       await redisCmd([
         'HSET',
@@ -56,11 +56,11 @@ export default async function handler(req, res) {
         'plan',
         'free',
         'total',
-        '3',
+        '10',
         'remaining',
-        '3',
-        'resetDate',
-        new Date().toISOString().split('T')[0],
+        '10',
+        'resetMonth',
+        new Date().toISOString().slice(0, 7),
       ]);
  
       const token = signSessionToken({ uid, email });
