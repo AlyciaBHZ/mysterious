@@ -76,6 +76,16 @@ export default function App() {
 
   // 加载时更新额度
   useEffect(() => {
+    // Ensure anonymous users show "guest" quota locally (avoid misleading monthly free display)
+    const sessionToken = localStorage.getItem('session_token');
+    if (!sessionToken) {
+      const q = QuotaManager.getQuota();
+      QuotaManager.setQuotaFromServer({
+        plan: 'guest',
+        total: 3,
+        remaining: Math.min(Number(q.remaining || 0), 3) || 3,
+      });
+    }
     setUserQuota(QuotaManager.getQuota());
 
     // 如果存在付费 token，则向服务端同步一次真实剩余次数

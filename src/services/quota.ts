@@ -77,8 +77,8 @@ export class QuotaManager {
     const stored = localStorage.getItem(this.STORAGE_KEY);
     
     if (!stored) {
-      // 新用户：免费额度
-      return this.createFreeQuota();
+      // 新用户默认：游客模式（不保存历史，额度更小）
+      return this.createGuestQuota();
     }
     
     const quota: UserQuota = JSON.parse(stored);
@@ -88,6 +88,14 @@ export class QuotaManager {
       const month = new Date().toISOString().slice(0, 7); // YYYY-MM
       if (quota.resetDate !== month) {
         return this.createFreeQuota();
+      }
+    }
+
+    // 游客：每日重置
+    if (quota.plan === 'guest') {
+      const today = new Date().toISOString().split('T')[0];
+      if (quota.resetDate !== today) {
+        return this.createGuestQuota();
       }
     }
     
@@ -118,8 +126,13 @@ export class QuotaManager {
       plan,
       total: Number(payload.total || 0),
       remaining: Number(payload.remaining || 0),
-      // free uses month marker; others keep date for display only
-      resetDate: plan === 'free' ? new Date().toISOString().slice(0, 7) : today,
+      // free uses month marker; guest uses daily marker; others keep date for display only
+      resetDate:
+        plan === 'free'
+          ? new Date().toISOString().slice(0, 7)
+          : plan === 'guest'
+            ? today
+            : today,
       activatedAt: payload.activatedAt || undefined,
       activationCode: payload.activationCode,
     };
@@ -128,8 +141,28 @@ export class QuotaManager {
     if (plan === 'free') {
       quota.total = quota.total || 10;
     }
+    // Guest: daily 3 as default
+    if (plan === 'guest') {
+      quota.total = quota.total || 3;
+    }
 
     this.setQuota(quota);
+    return quota;
+  }
+
+  /**
+   * 创建游客额度（每日重置）
+   */
+  private static createGuestQuota(): UserQuota {
+    const today = new Date().toISOString().split('T')[0];
+    const quota: UserQuota = {
+      plan: 'guest',
+      total: 3,
+      remaining: 3,
+      resetDate: today,
+    };
+
+    localStorage.setItem(this.STORAGE_KEY, JSON.stringify(quota));
     return quota;
   }
 
