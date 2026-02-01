@@ -1,0 +1,24 @@
+{
+  "name": "mysterious-api",
+  "version": "1.0.0",
+  "description": "小六壬排盘 API服务 - 保护API Key，实现付费功能",
+  "main": "api/gemini.js",
+  "scripts": {
+    "dev": "vercel dev",
+    "deploy": "vercel --prod",
+    "test": "node test.js"
+  },
+  "keywords": [
+    "xiaoluren",
+    "divination",
+    "api"
+  ],
+  "author": "",
+  "license": "MIT",
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "dependencies": {
+    "stripe": "^20.3.0"
+  }
+}

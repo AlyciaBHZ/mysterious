@@ -1,14 +1,19 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { PalaceCard } from "./components/PalaceCard";
 import { UserManual } from "./components/UserManual";
+import { PricingModal } from "./components/PricingModal";
+import { RedeemCodeModal } from "./components/RedeemCodeModal";
+import { ChatHistoryModal } from "./components/ChatHistoryModal";
+import { AuthModal } from "./components/AuthModal";
 import { Input } from "./components/ui/input";
 import { Label } from "./components/ui/label";
 import { Button } from "./components/ui/button";
-import { DEFAULT_API_KEY, DEFAULT_AI_MODEL } from "./config.local";
 import { calculatePalace } from "./core.logic";
 import { PalaceResult } from "./types";
 import { generateDivinationPrompt, getCurrentDateTimeInfo } from "./prompts.config";
 import { getTranslation, type Language } from "./i18n/translations";
+import { callGeminiAPI as callGeminiAPIService, confirmCheckout, createCheckout, getUserStatus, me } from "./services/api";
+import { QuotaManager, PLAN_CONFIG, type UserQuota } from "./services/quota";
 
 const TITLES = ["大安", "留连", "速喜", "赤口", "小吉", "空亡"];
 const ELEMENTS = ["木", "火", "土", "金", "水", "天空"];
@@ -46,13 +51,73 @@ export default function App() {
   const [error, setError] = useState("");
   
   // AI解卦相关状态
-  const [aiModel, setAiModel] = useState<'gemini' | 'claude'>(DEFAULT_AI_MODEL);
-  const [apiKey, setApiKey] = useState<string>(() => {
-    return localStorage.getItem('ai_api_key') || DEFAULT_API_KEY;
-  });
   const [question, setQuestion] = useState<string>("");
   const [aiResponse, setAiResponse] = useState<string>("");
   const [isAiLoading, setIsAiLoading] = useState<boolean>(false);
+  const [showRawAiResponse, setShowRawAiResponse] = useState<boolean>(false);
+
+  // 付费功能状态
+  const [userQuota, setUserQuota] = useState<UserQuota>(QuotaManager.getQuota());
+  const [showPricing, setShowPricing] = useState(false);
+  const [showRedeemCode, setShowRedeemCode] = useState(false);
+  const [showChatHistory, setShowChatHistory] = useState(false);
+  const [showAuth, setShowAuth] = useState(false);
+  const [authedEmail, setAuthedEmail] = useState<string | null>(null);
+  const [pendingPlanId, setPendingPlanId] = useState<string | null>(null);
+
+  // 加载时更新额度
+  useEffect(() => {
+    setUserQuota(QuotaManager.getQuota());
+
+    // 如果存在付费 token，则向服务端同步一次真实剩余次数
+    const userToken = localStorage.getItem('user_token') || 'free';
+    if (userToken && userToken !== 'free') {
+      getUserStatus().then((status: unknown) => {
+        if (status && typeof status === 'object' && 'ok' in status && (status as any).ok && 'plan' in status) {
+          QuotaManager.setQuotaFromServer({
+            plan: (status as any).plan,
+            total: Number((status as any).total || 0),
+            remaining: Number((status as any).remaining || 0),
+            activatedAt: (status as any).activatedAt || null,
+          });
+          setUserQuota(QuotaManager.getQuota());
+        }
+      }).catch(() => {
+        // ignore
+      });
+    }
+
+    // Load current user (for showing login state)
+    me().then((r) => {
+      if (r.ok && r.user?.email) setAuthedEmail(r.user.email);
+    }).catch(() => {});
+
+    // Handle payment confirmation after redirect
+    try {
+      const params = new URLSearchParams(window.location.search);
+      const pay = params.get('pay');
+      const sessionId = params.get('session_id');
+      if (pay === 'success' && sessionId) {
+        confirmCheckout(sessionId).then((r) => {
+          if (r.ok && r.plan && typeof r.total === 'number' && typeof r.remaining === 'number') {
+            QuotaManager.setQuotaFromServer({
+              plan: r.plan,
+              total: r.total,
+              remaining: r.remaining,
+            });
+            setUserQuota(QuotaManager.getQuota());
+            alert(`支付成功，已到账 ${r.added ?? 0} 次额度`);
+          } else {
+            alert(r.message || '支付确认失败');
+          }
+        }).catch(() => {
+          alert('支付确认失败');
+        });
+      }
+    } catch {
+      // ignore
+    }
+  }, []);
 
   // 切换语言
   const toggleLanguage = () => {
@@ -102,54 +167,12 @@ export default function App() {
     return `当前排盘结果：\n${descriptions.join('\n')}\n\n自身宫位：${selfPalace?.title}宫（${selfPalace?.wuxing}）`;
   };
 
-  // 调用Gemini API
-  const callGeminiAPI = async (prompt: string): Promise<string> => {
-    const response = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`,
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          contents: [{ parts: [{ text: prompt }] }]
-        })
-      }
-    );
-
-    const data = await response.json();
-    
-    if (!response.ok) {
-      const errorMsg = data.error?.message || response.statusText || '未知错误';
-      throw new Error(`Gemini API 错误: ${errorMsg}`);
-    }
-
-    return data.candidates[0]?.content?.parts[0]?.text || '无法获取回复';
+  // 刷新额度显示
+  const refreshQuota = () => {
+    setUserQuota(QuotaManager.getQuota());
   };
 
-  // 调用Claude API
-  const callClaudeAPI = async (prompt: string): Promise<string> => {
-    const response = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-api-key': apiKey,
-        'anthropic-version': '2023-06-01'
-      },
-      body: JSON.stringify({
-        model: 'claude-3-5-sonnet-20241022',
-        max_tokens: 2048,
-        messages: [{ role: 'user', content: prompt }]
-      })
-    });
-
-    const data = await response.json();
-    
-    if (!response.ok) {
-      const errorMsg = data.error?.message || response.statusText || '未知错误';
-      throw new Error(`Claude API 错误: ${errorMsg}`);
-    }
-
-    return data.content[0]?.text || '无法获取回复';
-  };
+  // API调用已迁移到 services/api.ts（使用Vercel后端代理）
 
   // AI解卦
   const handleAIDivination = async () => {
@@ -163,10 +186,25 @@ export default function App() {
       return;
     }
 
+    // ✅ 检查额度
+    const currentQuota = QuotaManager.getQuota();
+    if (currentQuota.remaining <= 0) {
+      alert(
+        currentQuota.plan === 'free'
+          ? '今日免费额度已用完！\n\n升级套餐享受更多次数 →'
+          : '您的解卦次数已用完！\n\n请购买新套餐继续使用 →'
+      );
+      setShowPricing(true);
+      return;
+    }
+
     setIsAiLoading(true);
     setAiResponse('');
 
     try {
+      // Used by backend to persist chat history (best-effort)
+      localStorage.setItem('mysterious_last_question', question.trim());
+
       const selfPalace = result.find(p => p.labelSelf);
       if (!selfPalace) {
         throw new Error('未找到自身宫位');
@@ -197,8 +235,20 @@ export default function App() {
         language
       );
 
-      const response = await callGeminiAPI(prompt);
-      setAiResponse(response);
+      // 调用Vercel API（保护API Key）
+      const userToken = localStorage.getItem('user_token') || 'free';
+      const data = await callGeminiAPIService(prompt, userToken);
+
+      // ✅ 以服务端返回为准刷新额度（避免前端本地“扣两次/不一致”）
+      QuotaManager.setQuotaFromServer({
+        plan: data.plan,
+        total: typeof data.total === 'number' ? data.total : (data.plan === 'free' ? 3 : userQuota.total),
+        remaining: data.remaining,
+      });
+      refreshQuota();
+
+      setAiResponse(data.result);
+      setShowRawAiResponse(false);
     } catch (error) {
       console.error('AI解卦错误:', error);
       setAiResponse(`${t.ai.errorPrefix}${error instanceof Error ? error.message : '未知错误'}${t.ai.errorSuffix}`);
@@ -207,13 +257,58 @@ export default function App() {
     }
   };
 
+  const handleCopyAiResponse = async () => {
+    try {
+      if (!aiResponse) return;
+      await navigator.clipboard.writeText(aiResponse);
+      alert(language === 'en' ? 'Copied.' : '已复制到剪贴板');
+    } catch {
+      try {
+        // Fallback for older browsers
+        const textarea = document.createElement('textarea');
+        textarea.value = aiResponse;
+        textarea.style.position = 'fixed';
+        textarea.style.left = '-9999px';
+        document.body.appendChild(textarea);
+        textarea.select();
+        document.execCommand('copy');
+        document.body.removeChild(textarea);
+        alert(language === 'en' ? 'Copied.' : '已复制到剪贴板');
+      } catch {
+        alert(language === 'en' ? 'Copy failed.' : '复制失败，请手动复制');
+      }
+    }
+  };
+
+  // 处理套餐选择
+  const handleSelectPlan = async (planId: string) => {
+    setShowPricing(false);
+    const session = localStorage.getItem('session_token');
+    if (!session) {
+      setPendingPlanId(planId);
+      setShowAuth(true);
+      return;
+    }
+    const r = await createCheckout(planId);
+    if (!r.ok || !r.url) {
+      alert(r.message || '下单失败');
+      return;
+    }
+    window.location.href = r.url;
+  };
+
+  // 兑换成功后刷新
+  const handleRedeemSuccess = () => {
+    refreshQuota();
+  };
+
   const isFormReady = Boolean(x1 && x2);
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-stone-50 to-stone-100 py-12 px-4">
       <div className="max-w-5xl mx-auto">
         {/* Navigation Header */}
-        <div className="flex justify-between items-center mb-8">
+        <div className="flex justify-between items-center mb-8 flex-wrap gap-4">
           <div className="flex items-center gap-2 text-stone-600">
             <a 
               href="https://lexaverse.dev" 
@@ -226,7 +321,8 @@ export default function App() {
             <span className="text-stone-400">/</span>
             <span className="text-stone-800 font-semibold">{t.nav.title}</span>
           </div>
-          <div className="flex items-center gap-4">
+          
+          <div className="flex items-center gap-3 flex-wrap">
             {/* 语言切换按钮 */}
             <button
               onClick={toggleLanguage}
@@ -238,6 +334,15 @@ export default function App() {
               </svg>
               {language === 'zh' ? 'EN' : '中文'}
             </button>
+
+            <button
+              onClick={() => setShowAuth(true)}
+              className="px-4 py-2 rounded-lg bg-white/80 border border-stone-300 hover:border-amber-500 transition-all duration-200 text-stone-700 font-medium"
+              title={authedEmail ? authedEmail : '登录/注册'}
+            >
+              {authedEmail ? '已登录' : '登录'}
+            </button>
+            
             {language === 'zh' && <UserManual />}
           </div>
         </div>
@@ -353,6 +458,63 @@ export default function App() {
               {t.ai.title}
             </h3>
 
+            {/* 额度显示和付费按钮 */}
+            <div className="flex justify-center items-stretch gap-3 flex-wrap mb-8">
+              {/* 额度显示 */}
+              <div className="px-6 py-3.5 rounded-2xl bg-white border-2 border-stone-200 flex items-center gap-3 shadow-sm hover:shadow-md transition-all duration-200 min-w-[180px]">
+                <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-blue-100 to-purple-100 flex items-center justify-center">
+                  <span className="text-2xl">💎</span>
+                </div>
+                <div className="flex flex-col justify-center">
+                  <div className="text-xs text-stone-500 font-medium mb-0.5">
+                    {PLAN_CONFIG[userQuota.plan].name}
+                  </div>
+                  <div className="text-stone-800 font-bold text-base">
+                    剩余 <span className="text-amber-600">{userQuota.remaining}</span>/{userQuota.total} 次
+                  </div>
+                </div>
+              </div>
+
+              {/* 兑换码按钮 */}
+              <button
+                onClick={() => setShowRedeemCode(true)}
+                className="px-6 py-3.5 rounded-2xl bg-white border-2 border-stone-200 hover:border-purple-300 hover:bg-purple-50 font-semibold shadow-sm hover:shadow-md transition-all duration-200 flex items-center gap-2.5 text-stone-800 min-w-[140px] justify-center"
+              >
+                <div className="w-9 h-9 rounded-lg bg-gradient-to-br from-purple-100 to-pink-100 flex items-center justify-center">
+                  <span className="text-lg">🎟️</span>
+                </div>
+                <span className="text-base">兑换码</span>
+              </button>
+
+              {/* 历史对话按钮（需要登录后才有内容） */}
+              <button
+                onClick={() => setShowChatHistory(true)}
+                className="px-6 py-3.5 rounded-2xl bg-white border-2 border-stone-200 hover:border-blue-300 hover:bg-blue-50 font-semibold shadow-sm hover:shadow-md transition-all duration-200 flex items-center gap-2.5 text-stone-800 min-w-[140px] justify-center"
+              >
+                <div className="w-9 h-9 rounded-lg bg-gradient-to-br from-blue-100 to-cyan-100 flex items-center justify-center">
+                  <span className="text-lg">🗂️</span>
+                </div>
+                <span className="text-base">历史</span>
+              </button>
+
+              {/* 升级套餐按钮 */}
+              {userQuota.plan === 'free' && (
+                <button
+                  onClick={() => setShowPricing(true)}
+                  className="px-6 py-3.5 rounded-2xl bg-gradient-to-r from-amber-400 to-orange-400 hover:from-amber-500 hover:to-orange-500 font-bold shadow-md hover:shadow-lg transition-all duration-200 flex items-center gap-2.5 min-w-[160px] justify-center relative overflow-hidden"
+                  style={{ color: '#000000' }}
+                >
+                  <div className="absolute inset-0 bg-white opacity-0 hover:opacity-10 transition-opacity"></div>
+                  <div className="w-9 h-9 rounded-lg bg-white/20 flex items-center justify-center">
+                    <span className="text-lg">⚡</span>
+                  </div>
+                  <span className="text-base relative z-10">升级套餐</span>
+                  <div className="absolute -right-1 -top-1 w-3 h-3 bg-red-500 rounded-full animate-ping"></div>
+                  <div className="absolute -right-1 -top-1 w-3 h-3 bg-red-500 rounded-full"></div>
+                </button>
+              )}
+            </div>
+
             {/* 问题输入区域 */}
             <div className="mb-8">
               <Label className="text-stone-700 mb-3 block font-semibold">{t.ai.questionLabel}</Label>
@@ -445,46 +607,110 @@ export default function App() {
             {/* 解卦结果显示 */}
             {aiResponse && !isAiLoading && (
               <div className="p-8 bg-gradient-to-br from-purple-50 to-amber-50 rounded-xl border border-purple-200/50 shadow-md">
-                <h4 className="text-2xl font-bold text-purple-800 mb-6 flex items-center gap-2 border-b border-purple-200 pb-3">
-                  {t.ai.resultTitle}
-                </h4>
-                <div className="max-w-none overflow-hidden">
-                  <div 
-                    className="break-words text-stone-800 font-sans text-base"
-                    style={{
-                      lineHeight: '1.8',
-                    }}
-                    dangerouslySetInnerHTML={{
-                      __html: aiResponse
-                        // 先清理多余的连续换行（3个及以上换行统一为2个）
-                        .replace(/\n{3,}/g, '\n\n')
-                        // 处理标题（标题前加空行，标题后不加空行）
-                        .replace(/\n*(###\s+.*?)(?=\n|$)/g, '\n\n<h3 class="text-xl font-bold text-purple-900 mt-8 mb-2">$1</h3>')
-                        // 移除标题开头的###标记
-                        .replace(/<h3 class="text-xl font-bold text-purple-900 mt-8 mb-2">###\s+(.*?)<\/h3>/g, '<h3 class="text-xl font-bold text-purple-900 mt-8 mb-2">$1</h3>')
-                        // 处理粗体（四星和双星）
-                        .replace(/\*\*\*\*(.*?)\*\*\*\*/g, '<strong class="font-bold text-red-600">$1</strong>')
-                        .replace(/\*\*(.*?)\*\*/g, '<strong class="font-semibold text-stone-900">$1</strong>')
-                        // 处理列表
-                        .replace(/^\* (.*?)$/gm, '<li class="ml-6 my-1 list-disc">$1</li>')
-                        // 处理分隔线
-                        .replace(/---/g, '<hr class="my-6 border-purple-200" />')
-                        // 处理段落（双换行 = 段落间距）
-                        .replace(/\n\n/g, '</p><p class="mb-3">')
-                        // 处理单换行
-                        .replace(/\n/g, '<br />')
-                        // 包裹在段落标签中
-                        .replace(/^/, '<p class="mb-3">')
-                        .replace(/$/, '</p>')
-                        // 清理可能的空段落
-                        .replace(/<p class="mb-3"><\/p>/g, '')
-                    }}
-                  />
+                <div className="flex items-start justify-between gap-4 border-b border-purple-200 pb-3 mb-6 flex-wrap">
+                  <h4 className="text-2xl font-bold text-purple-800 flex items-center gap-2">
+                    {t.ai.resultTitle}
+                  </h4>
+
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setShowRawAiResponse((v) => !v)}
+                      className="px-3 py-1.5 rounded-lg bg-white/70 border border-stone-200 hover:bg-white transition-colors text-sm font-semibold text-stone-800"
+                    >
+                      {showRawAiResponse ? (language === 'en' ? 'Formatted' : '格式化') : (language === 'en' ? 'Raw' : '原文')}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleCopyAiResponse}
+                      className="px-3 py-1.5 rounded-lg bg-white/70 border border-stone-200 hover:bg-white transition-colors text-sm font-semibold text-stone-800"
+                    >
+                      {language === 'en' ? 'Copy' : '复制'}
+                    </button>
+                  </div>
+                </div>
+
+                <div className="max-w-none max-h-[70vh] overflow-y-auto overflow-x-hidden pr-2">
+                  {showRawAiResponse ? (
+                    <pre className="whitespace-pre-wrap break-words text-stone-800 font-sans text-sm leading-relaxed">
+                      {aiResponse}
+                    </pre>
+                  ) : (
+                    <div
+                      className="break-words text-stone-800 font-sans text-base"
+                      style={{
+                        lineHeight: '1.8',
+                      }}
+                      dangerouslySetInnerHTML={{
+                        __html: aiResponse
+                          // 先清理多余的连续换行（3个及以上换行统一为2个）
+                          .replace(/\n{3,}/g, '\n\n')
+                          // 处理标题（标题前加空行，标题后不加空行）
+                          .replace(/\n*(###\s+.*?)(?=\n|$)/g, '\n\n<h3 class="text-xl font-bold text-purple-900 mt-8 mb-2">$1</h3>')
+                          // 移除标题开头的###标记
+                          .replace(/<h3 class="text-xl font-bold text-purple-900 mt-8 mb-2">###\s+(.*?)<\/h3>/g, '<h3 class="text-xl font-bold text-purple-900 mt-8 mb-2">$1</h3>')
+                          // 处理粗体（四星和双星）
+                          .replace(/\*\*\*\*(.*?)\*\*\*\*/g, '<strong class="font-bold text-red-600">$1</strong>')
+                          .replace(/\*\*(.*?)\*\*/g, '<strong class="font-semibold text-stone-900">$1</strong>')
+                          // 处理列表
+                          .replace(/^\* (.*?)$/gm, '<li class="ml-6 my-1 list-disc">$1</li>')
+                          // 处理分隔线
+                          .replace(/---/g, '<hr class="my-6 border-purple-200" />')
+                          // 处理段落（双换行 = 段落间距）
+                          .replace(/\n\n/g, '</p><p class="mb-3">')
+                          // 处理单换行
+                          .replace(/\n/g, '<br />')
+                          // 包裹在段落标签中
+                          .replace(/^/, '<p class="mb-3">')
+                          .replace(/$/, '</p>')
+                          // 清理可能的空段落
+                          .replace(/<p class="mb-3"><\/p>/g, '')
+                      }}
+                    />
+                  )}
                 </div>
               </div>
             )}
           </div>
         )}
+
+        {/* 付费功能弹窗 */}
+        <PricingModal
+          open={showPricing}
+          onClose={() => setShowPricing(false)}
+          onSelectPlan={handleSelectPlan}
+        />
+
+        <RedeemCodeModal
+          open={showRedeemCode}
+          onClose={() => setShowRedeemCode(false)}
+          onSuccess={handleRedeemSuccess}
+        />
+
+        <ChatHistoryModal
+          open={showChatHistory}
+          onClose={() => setShowChatHistory(false)}
+          onLoad={({ question, answer }) => {
+            setQuestion(question);
+            setAiResponse(answer);
+            setShowRawAiResponse(false);
+          }}
+        />
+
+        <AuthModal
+          open={showAuth}
+          onClose={() => setShowAuth(false)}
+          onAuthed={() => {
+            me().then((r) => {
+              if (r.ok && r.user?.email) setAuthedEmail(r.user.email);
+            }).catch(() => {});
+            if (pendingPlanId) {
+              const planId = pendingPlanId;
+              setPendingPlanId(null);
+              handleSelectPlan(planId);
+            }
+          }}
+        />
       </div>
     </div>
   );
