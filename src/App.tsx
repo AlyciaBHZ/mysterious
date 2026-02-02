@@ -393,7 +393,7 @@ export default function App() {
 
         {/* 输入表单卡片 */}
         <div 
-          className="glass-dark rounded-2xl p-8 mb-12 transition-all duration-500"
+          className="glass-dark rounded-2xl p-8 mb-16 transition-all duration-500"
           style={{ border: `1px solid ${GOLD}33` }}
         >
           <div className="max-w-2xl mx-auto">
@@ -456,6 +456,20 @@ export default function App() {
 
         {result ? (
           <>
+            {/* 排盘结果标题 */}
+            <div className="mb-6 text-center">
+              <h2 
+                className="text-xl font-bold tracking-wider"
+                style={{ color: GOLD }}
+              >
+                六宫排盘结果
+              </h2>
+              <div 
+                className="w-24 h-0.5 mx-auto mt-2 rounded-full"
+                style={{ background: `linear-gradient(to right, transparent, ${GOLD}, transparent)` }}
+              />
+            </div>
+
             {/* 排盘结果 */}
             <div id="result-grid">
               {result.map((palace, index) => (
@@ -473,8 +487,21 @@ export default function App() {
               ))}
             </div>
 
+            {/* 分隔线 */}
+            <div className="my-12 flex items-center justify-center gap-4">
+              <div 
+                className="flex-1 h-px"
+                style={{ background: `linear-gradient(to right, transparent, ${GOLD}33)` }}
+              />
+              <Sparkles className="w-5 h-5" style={{ color: `${GOLD}66` }} />
+              <div 
+                className="flex-1 h-px"
+                style={{ background: `linear-gradient(to left, transparent, ${GOLD}33)` }}
+              />
+            </div>
+
             {/* AI 解卦按钮 */}
-            <div className="mt-12 flex justify-center">
+            <div className="flex justify-center">
               <button
                 onClick={openAIDivination}
                 className="group relative px-8 py-4 rounded-2xl font-bold text-lg transition-all duration-500 flex items-center gap-3 overflow-hidden"
@@ -516,10 +543,22 @@ export default function App() {
                 </div>
               </button>
             </div>
+
+            {/* 底部留白 */}
+            <div className="h-16"></div>
           </>
         ) : (
-          <div className="text-center py-20">
-            <p className="text-stone-500 text-lg max-w-4xl mx-auto">{t.form.emptyResult}</p>
+          <div className="text-center py-24">
+            <div 
+              className="w-16 h-16 mx-auto mb-6 rounded-full flex items-center justify-center"
+              style={{ 
+                background: `linear-gradient(135deg, ${GOLD}1a, ${GOLD}0d)`,
+                border: `1px solid ${GOLD}33`,
+              }}
+            >
+              <Sparkles className="w-8 h-8" style={{ color: `${GOLD}66` }} />
+            </div>
+            <p className="text-stone-500 text-lg max-w-md mx-auto">{t.form.emptyResult}</p>
           </div>
         )}
 
