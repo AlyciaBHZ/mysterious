@@ -457,7 +457,7 @@ export default function App() {
         {result ? (
           <>
             {/* 排盘结果 */}
-            <div id="result-grid" className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-6">
+            <div id="result-grid">
               {result.map((palace, index) => (
                 <PalaceCard
                   key={`${palace.title}-${index}`}

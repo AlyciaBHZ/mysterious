@@ -153,33 +153,38 @@ body {
 }
 
 /* ========================================
-   响应式网格布局（补充 Tailwind 预编译缺失的类）
+   六宫结果网格布局
    ======================================== */
 
-/* 六宫结果网格 */
+/* 六宫结果 - 始终 3 列（两行三列） */
 #result-grid {
   display: grid;
-  gap: 1.5rem;
-  grid-template-columns: repeat(1, minmax(0, 1fr));
+  gap: 1rem;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
-/* sm: 640px+ 两列 */
-@media (min-width: 640px) {
+/* 宫位卡片 */
+.palace-card {
+  padding: 1.5rem;
+}
+
+/* 手机端优化 */
+@media (max-width: 640px) {
   #result-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0.5rem;
   }
-}
-
-/* md: 768px+ 三列 */
-@media (min-width: 768px) {
-  #result-grid {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
+  
+  .palace-card {
+    padding: 0.75rem;
   }
-}
-
-/* lg: 1024px+ 保持三列（可选改为六列） */
-@media (min-width: 1024px) {
-  #result-grid {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
+  
+  .palace-card h4 {
+    font-size: 0.875rem;
+    margin-bottom: 0.5rem;
+  }
+  
+  .palace-card > div {
+    font-size: 0.75rem;
+    margin-bottom: 0.25rem;
   }
 }

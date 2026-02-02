@@ -35,7 +35,7 @@ export function PalaceCard({ title, element, shichen, animal, wuxing, relation, 
 
   return (
     <Card 
-      className="relative overflow-hidden transition-all duration-500 p-6 rounded-xl text-center group hover:shadow-lg"
+      className="palace-card relative overflow-hidden transition-all duration-500 rounded-xl text-center group hover:shadow-lg"
       style={cardStyle}
     >
       {/* 角落装饰 */}
