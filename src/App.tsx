@@ -488,7 +488,7 @@ export default function App() {
             </div>
 
             {/* 分隔线 */}
-            <div className="my-12 flex items-center justify-center gap-4">
+            <div className="flex items-center justify-center gap-4" style={{ margin: '96px 0' }}>
               <div 
                 className="flex-1 h-px"
                 style={{ background: `linear-gradient(to right, transparent, ${GOLD}33)` }}
