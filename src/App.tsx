@@ -376,19 +376,23 @@ export default function App() {
         {/* Navigation Header */}
         <div className="flex justify-between items-center mb-8 flex-wrap gap-4">
           <div className="flex items-center gap-2 text-stone-600">
-            <a 
-              href="https://lexaverse.dev" 
-              className="hover:text-amber-600 transition-colors font-medium"
-              target="_blank"
-              rel="noopener noreferrer"
-            >
-              LEXAVERSE
-            </a>
+            <span className="font-medium">MYSTERIOUS</span>
             <span className="text-stone-400">/</span>
             <span className="text-stone-800 font-semibold">{t.nav.title}</span>
           </div>
           
           <div className="flex items-center gap-3 flex-wrap">
+            {/* 抽屉菜单（账号/历史） */}
+            <button
+              onClick={() => setShowSidebar(true)}
+              className="px-4 py-2 rounded-lg bg-white/80 border border-stone-300 hover:border-amber-500 transition-all duration-200 text-stone-700 font-medium flex items-center gap-2"
+              title="菜单"
+              aria-label="打开菜单"
+            >
+              <span className="text-base">☰</span>
+              <span className="hidden sm:inline">菜单</span>
+            </button>
+
             {/* 语言切换按钮 */}
             <button
               onClick={toggleLanguage}
