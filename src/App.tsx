@@ -66,11 +66,6 @@ export default function App() {
     window.setTimeout(() => setNotice(null), 4000);
   };
 
-  const isLoggedIn = useMemo(() => {
-    const t = localStorage.getItem('session_token');
-    return Boolean(t);
-  }, [authedEmail]);
-
   // 付费功能状态
   const [userQuota, setUserQuota] = useState<UserQuota>(QuotaManager.getQuota());
   const [showPricing, setShowPricing] = useState(false);
@@ -79,6 +74,11 @@ export default function App() {
   const [showAuth, setShowAuth] = useState(false);
   const [authedEmail, setAuthedEmail] = useState<string | null>(null);
   const [pendingPlanId, setPendingPlanId] = useState<string | null>(null);
+
+  const isLoggedIn = useMemo(() => {
+    const t = localStorage.getItem('session_token');
+    return Boolean(t);
+  }, [authedEmail]);
 
   // 加载时更新额度
   useEffect(() => {
