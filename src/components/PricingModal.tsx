@@ -17,9 +17,10 @@ interface PricingModalProps {
   open: boolean;
   onClose: () => void;
   onSelectPlan: (plan: string) => void;
+  onOpenRedeem?: () => void;
 }
 
-export function PricingModal({ open, onClose, onSelectPlan }: PricingModalProps) {
+export function PricingModal({ open, onClose, onSelectPlan, onOpenRedeem }: PricingModalProps) {
   const plans = [
     { id: 'trial', ...PLAN_CONFIG.trial },
     { id: 'basic', ...PLAN_CONFIG.basic },
@@ -29,7 +30,7 @@ export function PricingModal({ open, onClose, onSelectPlan }: PricingModalProps)
 
   return (
     <Dialog open={open} onOpenChange={onClose}>
-      <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
+      <DialogContent className="w-[95vw] sm:max-w-2xl md:max-w-4xl max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle className="text-2xl font-bold text-center">
             升级套餐 💰
@@ -107,11 +108,21 @@ export function PricingModal({ open, onClose, onSelectPlan }: PricingModalProps)
         <div className="mt-6 p-4 bg-stone-100 rounded-lg text-sm text-stone-600">
           <p className="font-semibold mb-2">💡 购买说明：</p>
           <ol className="list-decimal list-inside space-y-1">
-            <li>购买后将获得兑换码</li>
-            <li>在首页点击"兑换码激活"输入兑换码即可使用</li>
-            <li>额度永久有效，用完即止</li>
-            <li>如有问题请联系客服</li>
+            <li>购买前需要先登录（用于到账与历史记录同步）</li>
+            <li>购买成功后会自动到账（无需兑换码）</li>
+            <li>如你已有兑换码，可选择兑换码激活</li>
           </ol>
+          {onOpenRedeem && (
+            <div className="mt-3">
+              <button
+                type="button"
+                onClick={onOpenRedeem}
+                className="text-amber-700 font-semibold hover:underline"
+              >
+                我有兑换码 → 去激活
+              </button>
+            </div>
+          )}
         </div>
       </DialogContent>
     </Dialog>

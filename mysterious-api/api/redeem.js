@@ -11,13 +11,7 @@ import { randomBytes } from 'node:crypto';
 import { hasRedis, redisCmd } from './_upstash.js';
 import { signUserToken } from './_auth.js';
 import { memoryUsedCodes, memoryUsers } from './_memoryStore.js';
- 
-function setCors(res) {
-  res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With');
-  res.setHeader('Access-Control-Max-Age', '86400');
-}
+import { applyCors } from './_cors.js';
  
 function loadCodeTable() {
   const raw = process.env.REDEMPTION_CODES_JSON || process.env.REDEEM_CODES_JSON || '';
@@ -31,8 +25,8 @@ function loadCodeTable() {
 }
  
 export default async function handler(req, res) {
-  setCors(res);
-  if (req.method === 'OPTIONS') return res.status(200).end();
+  const cors = applyCors(req, res, { methods: 'POST, OPTIONS', headers: 'Content-Type, Authorization, X-Requested-With' });
+  if (cors.handled) return;
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
  
   try {

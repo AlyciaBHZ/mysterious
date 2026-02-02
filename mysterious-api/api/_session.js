@@ -33,13 +33,21 @@ function signPayloadB64(payloadB64) {
   return base64UrlEncode(sig);
 }
  
+function getSessionTtlSeconds() {
+  const days = Number(process.env.SESSION_TTL_DAYS || 30);
+  const safeDays = Number.isFinite(days) && days > 0 ? days : 30;
+  return Math.floor(safeDays * 24 * 60 * 60);
+}
+ 
 export function signSessionToken({ uid, email }) {
+  const iat = Math.floor(Date.now() / 1000);
   const payload = {
     v: 1,
     type: 'session',
     uid,
     email,
-    iat: Math.floor(Date.now() / 1000),
+    iat,
+    exp: iat + getSessionTtlSeconds(),
   };
   const payloadB64 = base64UrlEncode(JSON.stringify(payload));
   const sigB64 = signPayloadB64(payloadB64);
@@ -68,6 +76,10 @@ export function verifySessionToken(token) {
     const payload = JSON.parse(base64UrlDecodeToString(payloadB64));
     if (!payload || payload.v !== 1 || payload.type !== 'session') return null;
     if (typeof payload.uid !== 'string' || typeof payload.email !== 'string') return null;
+    if (typeof payload.exp === 'number') {
+      const now = Math.floor(Date.now() / 1000);
+      if (payload.exp <= now) return null;
+    }
     return payload;
   } catch {
     return null;
@@ -78,10 +90,6 @@ export function getSessionFromRequest(req) {
   const h = req.headers?.authorization || req.headers?.Authorization;
   const bearer =
     typeof h === 'string' && h.toLowerCase().startsWith('bearer ') ? h.slice(7).trim() : null;
-  const token =
-    bearer ||
-    (typeof req.query?.session === 'string' ? req.query.session : null) ||
-    (typeof req.query?.token === 'string' ? req.query.token : null);
-  return verifySessionToken(token);
+  return verifySessionToken(bearer);
 }
  

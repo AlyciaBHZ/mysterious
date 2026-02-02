@@ -31,10 +31,15 @@
   - `USER_TOKEN_SECRET`
 - **支付（Stripe，支持微信/支付宝取决于 Stripe 账号与地区能力）**
   - `STRIPE_SECRET_KEY`
+  - `STRIPE_WEBHOOK_SECRET`（推荐：启用 webhook 自动到账）
   - `FRONTEND_URL`（用于支付成功/取消回跳）
 - **存储（推荐）**
   - `UPSTASH_REDIS_REST_URL`
   - `UPSTASH_REDIS_REST_TOKEN`
+ - **白名单（可选）**
+  - `WHITELIST_EMAILS`（逗号分隔邮箱，白名单不计费）
+ - **CORS（推荐）**
+  - `ALLOWED_ORIGINS`（逗号分隔 origin，API 会强制校验）
 
 ### 本地开发（API）
 

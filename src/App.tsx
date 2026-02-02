@@ -59,6 +59,12 @@ export default function App() {
 
   type ChatMsg = { id: string; role: 'user' | 'assistant'; content: string; createdAt: number };
   const [chatMessages, setChatMessages] = useState<ChatMsg[]>([]);
+  const [notice, setNotice] = useState<{ type: 'info' | 'success' | 'error'; text: string } | null>(null);
+
+  const showNotice = (type: 'info' | 'success' | 'error', text: string) => {
+    setNotice({ type, text });
+    window.setTimeout(() => setNotice(null), 4000);
+  };
 
   const isLoggedIn = useMemo(() => {
     const t = localStorage.getItem('session_token');
@@ -133,12 +139,12 @@ export default function App() {
               remaining: r.remaining,
             });
             setUserQuota(QuotaManager.getQuota());
-            alert(`支付成功，已到账 ${r.added ?? 0} 次额度`);
+            showNotice('success', `支付成功，已到账 ${r.added ?? 0} 次额度`);
           } else {
-            alert(r.message || '支付确认失败');
+            showNotice('error', r.message || '支付确认失败');
           }
         }).catch(() => {
-          alert('支付确认失败');
+          showNotice('error', '支付确认失败');
         });
       }
     } catch {
@@ -204,24 +210,25 @@ export default function App() {
   // AI解卦
   const handleAIDivination = async () => {
     if (!question.trim()) {
-      alert(t.ai.alertNoQuestion);
+      showNotice('error', t.ai.alertNoQuestion);
       return;
     }
 
     if (!result) {
-      alert(t.ai.alertNoResult);
+      showNotice('error', t.ai.alertNoResult);
       return;
     }
 
     // ✅ 检查额度
     const currentQuota = QuotaManager.getQuota();
     if (currentQuota.remaining <= 0) {
-      alert(
-        currentQuota.plan === 'free'
-          ? '今日免费额度已用完！\n\n升级套餐享受更多次数 →'
-          : '您的解卦次数已用完！\n\n请购买新套餐继续使用 →'
-      );
-      setShowPricing(true);
+      if (currentQuota.plan === 'guest') {
+        showNotice('info', '游客额度已用完（每天 3 次）。登录后可获得每月 10 次免费并保存历史。');
+        setShowAuth(true);
+      } else {
+        showNotice('info', '本期额度已用完。购买套餐可继续使用（白名单不计费）。');
+        setShowPricing(true);
+      }
       return;
     }
 
@@ -278,7 +285,14 @@ export default function App() {
       // ✅ 以服务端返回为准刷新额度（避免前端本地“扣两次/不一致”）
       QuotaManager.setQuotaFromServer({
         plan: data.plan,
-        total: typeof data.total === 'number' ? data.total : (data.plan === 'free' ? 3 : userQuota.total),
+        total:
+          typeof data.total === 'number'
+            ? data.total
+            : data.plan === 'free'
+              ? 10
+              : data.plan === 'guest'
+                ? 3
+                : userQuota.total,
         remaining: data.remaining,
       });
       refreshQuota();
@@ -296,6 +310,7 @@ export default function App() {
     } catch (error) {
       console.error('AI解卦错误:', error);
       setAiResponse(`${t.ai.errorPrefix}${error instanceof Error ? error.message : '未知错误'}${t.ai.errorSuffix}`);
+      showNotice('error', error instanceof Error ? error.message : '未知错误');
     } finally {
       setIsAiLoading(false);
     }
@@ -312,7 +327,7 @@ export default function App() {
     try {
       if (!aiResponse) return;
       await navigator.clipboard.writeText(aiResponse);
-      alert(language === 'en' ? 'Copied.' : '已复制到剪贴板');
+      showNotice('success', language === 'en' ? 'Copied.' : '已复制到剪贴板');
     } catch {
       try {
         // Fallback for older browsers
@@ -324,9 +339,9 @@ export default function App() {
         textarea.select();
         document.execCommand('copy');
         document.body.removeChild(textarea);
-        alert(language === 'en' ? 'Copied.' : '已复制到剪贴板');
+        showNotice('success', language === 'en' ? 'Copied.' : '已复制到剪贴板');
       } catch {
-        alert(language === 'en' ? 'Copy failed.' : '复制失败，请手动复制');
+        showNotice('error', language === 'en' ? 'Copy failed.' : '复制失败，请手动复制');
       }
     }
   };
@@ -342,7 +357,7 @@ export default function App() {
     }
     const r = await createCheckout(planId);
     if (!r.ok || !r.url) {
-      alert(r.message || '下单失败');
+      showNotice('error', r.message || '下单失败');
       return;
     }
     window.location.href = r.url;
@@ -460,7 +475,7 @@ export default function App() {
         </div>
 
         {result ? (
-          <div id="result-grid" className="grid grid-cols-3 gap-6">
+          <div id="result-grid" className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-6">
             {result.map((palace, index) => (
               <PalaceCard
                 key={`${palace.title}-${index}`}
@@ -509,6 +524,20 @@ export default function App() {
               {t.ai.title}
             </h3>
 
+            {notice && (
+              <div
+                className={`mb-6 rounded-xl border px-4 py-3 text-sm ${
+                  notice.type === 'success'
+                    ? 'bg-green-50 border-green-200 text-green-800'
+                    : notice.type === 'error'
+                      ? 'bg-red-50 border-red-200 text-red-800'
+                      : 'bg-amber-50 border-amber-200 text-amber-900'
+                }`}
+              >
+                {notice.text}
+              </div>
+            )}
+
             {/* 额度显示和付费按钮 */}
             <div className="flex justify-center items-stretch gap-3 flex-wrap mb-8">
               {/* 侧滑菜单按钮（移动端优先） */}
@@ -516,6 +545,7 @@ export default function App() {
                 onClick={() => setShowSidebar(true)}
                 className="px-4 py-3.5 rounded-2xl bg-white border-2 border-stone-200 hover:border-stone-300 shadow-sm hover:shadow-md transition-all duration-200 flex items-center gap-2 text-stone-800 justify-center"
                 title="菜单"
+                aria-label="打开菜单"
               >
                 <span className="text-lg">☰</span>
                 <span className="text-base font-semibold hidden sm:inline">菜单</span>
@@ -531,7 +561,11 @@ export default function App() {
                     {PLAN_CONFIG[userQuota.plan].name}
                   </div>
                   <div className="text-stone-800 font-bold text-base">
-                    剩余 <span className="text-amber-600">{userQuota.remaining}</span>/{userQuota.total} 次
+                    剩余{' '}
+                    <span className="text-amber-600">
+                      {userQuota.plan === 'whitelist' ? '∞' : userQuota.remaining}
+                    </span>
+                    /{userQuota.plan === 'whitelist' ? '∞' : userQuota.total} 次
                   </div>
                 </div>
               </div>
@@ -799,6 +833,10 @@ export default function App() {
           open={showPricing}
           onClose={() => setShowPricing(false)}
           onSelectPlan={handleSelectPlan}
+          onOpenRedeem={() => {
+            setShowPricing(false);
+            setShowRedeemCode(true);
+          }}
         />
 
         <RedeemCodeModal
@@ -814,9 +852,12 @@ export default function App() {
           onOpenAuth={() => setShowAuth(true)}
           onLogout={() => {
             localStorage.removeItem('session_token');
+            localStorage.removeItem('user_token');
             setAuthedEmail(null);
             // keep guest_mode on
             localStorage.setItem('guest_mode', '1');
+            QuotaManager.setQuotaFromServer({ plan: 'guest', total: 3, remaining: 3 });
+            setUserQuota(QuotaManager.getQuota());
           }}
           onLoad={({ question, answer }) => {
             setQuestion(question);
@@ -835,6 +876,12 @@ export default function App() {
           onAuthed={() => {
             me().then((r) => {
               if (r.ok && r.user?.email) setAuthedEmail(r.user.email);
+            }).catch(() => {});
+            getQuota().then((q) => {
+              if (q.ok && q.plan && typeof q.total === 'number' && typeof q.remaining === 'number') {
+                QuotaManager.setQuotaFromServer({ plan: q.plan, total: q.total, remaining: q.remaining });
+                setUserQuota(QuotaManager.getQuota());
+              }
             }).catch(() => {});
             if (pendingPlanId) {
               const planId = pendingPlanId;

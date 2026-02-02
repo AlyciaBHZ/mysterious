@@ -4,16 +4,41 @@
  * Body: { email, password }
  */
  
-import { hasRedis, redisCmd } from '../_upstash.js';
+import { hasRedis, redisCmd, redisMultiExec } from '../_upstash.js';
 import { verifyPassword } from '../_password.js';
 import { signSessionToken } from '../_session.js';
 import { memoryAuthEmailToUid, memoryAuthUsers } from '../_memoryStore.js';
+import { applyCors } from '../_cors.js';
  
-function setCors(res) {
-  res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With');
-  res.setHeader('Access-Control-Max-Age', '86400');
+function getClientIp(req) {
+  const xff = req.headers['x-forwarded-for'];
+  if (typeof xff === 'string' && xff.length > 0) return xff.split(',')[0].trim();
+  const xr = req.headers['x-real-ip'];
+  if (typeof xr === 'string' && xr.length > 0) return xr.trim();
+  return 'unknown';
+}
+
+async function rateLimitLogin(req) {
+  const ip = getClientIp(req);
+  const windowSec = 15 * 60;
+  const limit = 8;
+  const key = `rl:login:${ip}:${Math.floor(Date.now() / 1000 / windowSec)}`;
+
+  if (hasRedis()) {
+    const res = await redisMultiExec([
+      ['INCR', key],
+      ['EXPIRE', key, String(windowSec)],
+    ]);
+    const count = Array.isArray(res) && res[0] && 'result' in res[0] ? Number(res[0].result) : 0;
+    return { ok: count <= limit, remaining: Math.max(0, limit - count) };
+  }
+
+  // memory fallback (best effort)
+  globalThis.__rlLogin = globalThis.__rlLogin || new Map();
+  const store = globalThis.__rlLogin;
+  const count = (store.get(key) || 0) + 1;
+  store.set(key, count);
+  return { ok: count <= limit, remaining: Math.max(0, limit - count) };
 }
  
 function normalizeEmail(email) {
@@ -21,11 +46,16 @@ function normalizeEmail(email) {
 }
  
 export default async function handler(req, res) {
-  setCors(res);
-  if (req.method === 'OPTIONS') return res.status(200).end();
+  const cors = applyCors(req, res, { methods: 'POST, OPTIONS', headers: 'Content-Type, Authorization, X-Requested-With' });
+  if (cors.handled) return;
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
  
   try {
+    const rl = await rateLimitLogin(req);
+    if (!rl.ok) {
+      return res.status(429).json({ ok: false, message: '请求过于频繁，请稍后再试' });
+    }
+
     const email = normalizeEmail(req.body?.email);
     const password = String(req.body?.password || '');
  

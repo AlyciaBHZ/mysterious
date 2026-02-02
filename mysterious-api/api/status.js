@@ -10,13 +10,7 @@
 import { hasRedis, redisCmd } from './_upstash.js';
 import { verifyUserToken } from './_auth.js';
 import { memoryUsers } from './_memoryStore.js';
- 
-function setCors(res) {
-  res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With');
-  res.setHeader('Access-Control-Max-Age', '86400');
-}
+import { applyCors } from './_cors.js';
  
 function getBearerToken(req) {
   const h = req.headers?.authorization || req.headers?.Authorization;
@@ -27,11 +21,11 @@ function getBearerToken(req) {
 }
  
 export default async function handler(req, res) {
-  setCors(res);
-  if (req.method === 'OPTIONS') return res.status(200).end();
+  const cors = applyCors(req, res, { methods: 'GET, OPTIONS', headers: 'Content-Type, Authorization, X-Requested-With' });
+  if (cors.handled) return;
   if (req.method !== 'GET') return res.status(405).json({ error: 'Method not allowed' });
  
-  const token = getBearerToken(req) || (typeof req.query?.token === 'string' ? req.query.token : null);
+  const token = getBearerToken(req);
   const payload = verifyUserToken(token);
   if (!payload) {
     return res.status(401).json({ ok: false, message: '无效的用户凭证，请重新兑换' });

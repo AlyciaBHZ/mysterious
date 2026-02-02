@@ -11,15 +11,9 @@
  
 import Stripe from 'stripe';
 import { getSessionFromRequest } from '../_session.js';
-import { hasRedis, redisCmd } from '../_upstash.js';
-import { memoryUsers } from '../_memoryStore.js';
- 
-function setCors(res) {
-  res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With');
-  res.setHeader('Access-Control-Max-Age', '86400');
-}
+import { creditQuotaIdempotent } from '../_billing.js';
+import { getPlan } from '../_plans.js';
+import { applyCors } from '../_cors.js';
  
 function getStripe() {
   const key = process.env.STRIPE_SECRET_KEY || '';
@@ -27,29 +21,9 @@ function getStripe() {
   return new Stripe(key, { apiVersion: '2025-01-27.acacia' });
 }
  
-async function creditQuotaRedis(uid, planId, add) {
-  const userKey = `user:${uid}`;
-  const lua = `
-local key = KEYS[1]
-local add = tonumber(ARGV[1])
-local plan = ARGV[2]
-local existingPlan = redis.call("HGET", key, "plan")
-local total = tonumber(redis.call("HGET", key, "total") or "0")
-local remaining = tonumber(redis.call("HGET", key, "remaining") or "0")
-total = total + add
-remaining = remaining + add
-redis.call("HSET", key, "plan", plan, "total", tostring(total), "remaining", tostring(remaining))
-return {plan, total, remaining, existingPlan}
-`.trim();
- 
-  const result = await redisCmd(['EVAL', lua, '1', userKey, String(add), String(planId)]);
-  const [plan, total, remaining] = Array.isArray(result) ? result : [planId, 0, 0];
-  return { plan, total: Number(total), remaining: Number(remaining) };
-}
- 
 export default async function handler(req, res) {
-  setCors(res);
-  if (req.method === 'OPTIONS') return res.status(200).end();
+  const cors = applyCors(req, res, { methods: 'GET, OPTIONS', headers: 'Content-Type, Authorization, X-Requested-With' });
+  if (cors.handled) return;
   if (req.method !== 'GET') return res.status(405).json({ error: 'Method not allowed' });
  
   const session = getSessionFromRequest(req);
@@ -77,35 +51,21 @@ export default async function handler(req, res) {
     if (!Number.isFinite(quota) || quota <= 0) {
       return res.status(500).json({ ok: false, message: '订单额度信息异常' });
     }
- 
-    // Idempotency
-    const processedKey = `pay:processed:${sessionId}`;
-    if (hasRedis()) {
-      const ok = await redisCmd(['SET', processedKey, '1', 'NX']);
-      if (ok !== 'OK') {
-        // already processed; return current quota
-        const values = await redisCmd(['HMGET', `user:${uid}`, 'plan', 'total', 'remaining']);
-        const [p, t, r] = Array.isArray(values) ? values : [];
-        return res.json({ ok: true, added: 0, plan: p, total: Number(t || 0), remaining: Number(r || 0), idempotent: true });
-      }
- 
-      const credited = await creditQuotaRedis(uid, planId, quota);
-      return res.json({ ok: true, added: quota, ...credited });
+
+    // Verify amount matches our server-side plan table (prevents metadata tampering)
+    const expected = getPlan(planId);
+    if (!expected) {
+      return res.status(400).json({ ok: false, message: '订单套餐无效' });
+    }
+    if (checkout.currency && String(checkout.currency).toLowerCase() !== 'cny') {
+      return res.status(400).json({ ok: false, message: '订单币种异常' });
+    }
+    if (typeof checkout.amount_total === 'number' && checkout.amount_total !== expected.amount_cny_fen) {
+      return res.status(400).json({ ok: false, message: '订单金额异常' });
     }
  
-    // Memory fallback
-    const u = memoryUsers.get(uid) || { plan: 'free', total: 3, remaining: 3 };
-    const seen = u._processed || new Set();
-    if (seen.has(sessionId)) {
-      return res.json({ ok: true, added: 0, plan: u.plan, total: u.total, remaining: u.remaining, idempotent: true });
-    }
-    seen.add(sessionId);
-    u._processed = seen;
-    u.plan = planId;
-    u.total = Number(u.total || 0) + quota;
-    u.remaining = Number(u.remaining || 0) + quota;
-    memoryUsers.set(uid, u);
-    return res.json({ ok: true, added: quota, plan: u.plan, total: u.total, remaining: u.remaining, storage: 'memory' });
+    const credited = await creditQuotaIdempotent({ uid, sessionId, planId, quota });
+    return res.json({ ok: true, ...credited });
   } catch (err) {
     console.error('pay confirm error:', err);
     return res.status(500).json({

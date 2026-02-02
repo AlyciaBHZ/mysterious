@@ -7,13 +7,7 @@
 import { getSessionFromRequest } from './_session.js';
 import { hasRedis, redisCmd } from './_upstash.js';
 import { memoryUsers } from './_memoryStore.js';
- 
-function setCors(res) {
-  res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With');
-  res.setHeader('Access-Control-Max-Age', '86400');
-}
+import { applyCors } from './_cors.js';
  
 function currentMonth() {
   return new Date().toISOString().slice(0, 7); // YYYY-MM
@@ -41,8 +35,8 @@ async function ensureMonthlyFreeRedis(uid) {
 }
  
 export default async function handler(req, res) {
-  setCors(res);
-  if (req.method === 'OPTIONS') return res.status(200).end();
+  const cors = applyCors(req, res, { methods: 'GET, OPTIONS', headers: 'Content-Type, Authorization, X-Requested-With' });
+  if (cors.handled) return;
   if (req.method !== 'GET') return res.status(405).json({ error: 'Method not allowed' });
  
   const session = getSessionFromRequest(req);

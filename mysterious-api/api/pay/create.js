@@ -12,20 +12,8 @@ import Stripe from 'stripe';
 import { getSessionFromRequest } from '../_session.js';
 import { hasRedis, redisCmd } from '../_upstash.js';
 import { memoryUsers } from '../_memoryStore.js';
- 
-function setCors(res) {
-  res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With');
-  res.setHeader('Access-Control-Max-Age', '86400');
-}
- 
-const PLANS = {
-  trial: { name: '体验包', quota: 20, amount_cny_fen: 600 },
-  basic: { name: '基础包', quota: 80, amount_cny_fen: 1900 },
-  standard: { name: '超值包', quota: 250, amount_cny_fen: 4900 },
-  pro: { name: '专业包', quota: 600, amount_cny_fen: 9900 },
-};
+import { getPlan } from '../_plans.js';
+import { applyCors } from '../_cors.js';
  
 function getStripe() {
   const key = process.env.STRIPE_SECRET_KEY || '';
@@ -57,8 +45,8 @@ async function getOrCreateStripeCustomerId({ stripe, uid, email }) {
 }
  
 export default async function handler(req, res) {
-  setCors(res);
-  if (req.method === 'OPTIONS') return res.status(200).end();
+  const cors = applyCors(req, res, { methods: 'POST, OPTIONS', headers: 'Content-Type, Authorization, X-Requested-With' });
+  if (cors.handled) return;
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
  
   const session = getSessionFromRequest(req);
@@ -66,7 +54,7 @@ export default async function handler(req, res) {
  
   try {
     const planId = String(req.body?.planId || '').trim();
-    const plan = PLANS[planId];
+    const plan = getPlan(planId);
     if (!plan) return res.status(400).json({ ok: false, message: '无效套餐' });
  
     const frontendUrl = getFrontendUrl();

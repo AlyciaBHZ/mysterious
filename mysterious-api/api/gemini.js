@@ -6,10 +6,11 @@
  * Phase 3: 添加用户验证
  */
 
-import { hasRedis, redisCmd } from './_upstash.js';
+import { hasRedis, redisCmd, redisMultiExec } from './_upstash.js';
 import { verifyUserToken } from './_auth.js';
 import { memoryUsers, memoryChats } from './_memoryStore.js';
 import { getSessionFromRequest } from './_session.js';
+import { applyCors } from './_cors.js';
 
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
 const GEMINI_MODEL = process.env.GEMINI_MODEL || 'gemini-2.0-flash';
@@ -20,6 +21,8 @@ const GEMINI_FALLBACK_MODELS = (process.env.GEMINI_FALLBACK_MODELS ||
   .map((s) => s.trim())
   .filter(Boolean)
   .filter((m) => m !== GEMINI_MODEL);
+const MAX_PROMPT_CHARS = 20000;
+const MAX_QUESTION_CHARS = 500;
 
 function isLeakedKeyErrorText(text) {
   return typeof text === 'string' && /reported as leaked/i.test(text);
@@ -161,24 +164,33 @@ async function callGemini(prompt) {
 }
 
 /**
- * IP限流（Phase 1: 简单版本）
- * 免费用户：3次/天
+ * 游客限流（默认：3 次/天）。
+ *
+ * - Redis: uses INCR + EXPIRE (durable across instances)
+ * - Fallback: in-memory Map (best-effort)
  */
-const ipUsage = new Map(); // 生产环境应使用Redis/KV
+const ipUsage = new Map();
+const GUEST_DAILY_LIMIT = 3;
 
-function checkIPLimit(ip) {
+async function checkIPLimit(ip) {
   const today = new Date().toISOString().split('T')[0];
-  const key = `${ip}:${today}`;
-  
-  const count = ipUsage.get(key) || 0;
-  
-  if (count >= 3) {
-    return { allowed: false, remaining: 0 };
+
+  if (hasRedis()) {
+    const key = `rl:guest:${ip}:${today}`;
+    const res = await redisMultiExec([
+      ['INCR', key],
+      ['EXPIRE', key, String(24 * 60 * 60)],
+    ]);
+    const count = Array.isArray(res) && res[0] && 'result' in res[0] ? Number(res[0].result) : 0;
+    if (count > GUEST_DAILY_LIMIT) return { allowed: false, remaining: 0 };
+    return { allowed: true, remaining: Math.max(0, GUEST_DAILY_LIMIT - count) };
   }
-  
+
+  const key = `${ip}:${today}`;
+  const count = ipUsage.get(key) || 0;
+  if (count >= GUEST_DAILY_LIMIT) return { allowed: false, remaining: 0 };
   ipUsage.set(key, count + 1);
-  
-  return { allowed: true, remaining: 2 - count };
+  return { allowed: true, remaining: Math.max(0, GUEST_DAILY_LIMIT - (count + 1)) };
 }
 
 function getWhitelistEmails() {
@@ -352,16 +364,8 @@ async function refundPaidQuota(uid) {
  * 主处理函数
  */
 export default async function handler(req, res) {
-  // 🔑 关键：无论什么请求，先设置 CORS headers
-  res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With');
-  res.setHeader('Access-Control-Max-Age', '86400');
-  
-  // 处理 OPTIONS 预检请求
-  if (req.method === 'OPTIONS') {
-    return res.status(200).end();
-  }
+  const cors = applyCors(req, res, { methods: 'POST, OPTIONS', headers: 'Content-Type, Authorization, X-Requested-With' });
+  if (cors.handled) return;
   
   // 只接受POST
   if (req.method !== 'POST') {
@@ -373,6 +377,14 @@ export default async function handler(req, res) {
     
     if (!prompt) {
       return res.status(400).json({ error: 'Prompt is required' });
+    }
+
+    if (typeof prompt !== 'string' || prompt.length > MAX_PROMPT_CHARS) {
+      return res.status(400).json({ error: 'Prompt too large', message: '请求内容过长，请缩短后重试' });
+    }
+
+    if (question && typeof question === 'string' && question.length > MAX_QUESTION_CHARS) {
+      return res.status(400).json({ error: 'Question too large', message: '问题过长，请缩短后重试' });
     }
     
     // Promotion rule:
@@ -445,7 +457,7 @@ export default async function handler(req, res) {
     if (!userToken || userToken === 'free') {
       // 游客：IP限流（2-3次，默认3次/天）
       const ip = req.headers['x-forwarded-for'] || req.headers['x-real-ip'] || 'unknown';
-      const limitCheck = checkIPLimit(ip);
+      const limitCheck = await checkIPLimit(ip);
       
       if (!limitCheck.allowed) {
         return res.status(429).json({

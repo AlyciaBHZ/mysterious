@@ -38,11 +38,19 @@ function signPayloadB64(payloadB64) {
   return base64UrlEncode(sig);
 }
  
+function getUserTokenTtlSeconds() {
+  const days = Number(process.env.USER_TOKEN_TTL_DAYS || 365);
+  const safeDays = Number.isFinite(days) && days > 0 ? days : 365;
+  return Math.floor(safeDays * 24 * 60 * 60);
+}
+ 
 export function signUserToken({ uid }) {
+  const iat = Math.floor(Date.now() / 1000);
   const payload = {
     v: 1,
     uid,
-    iat: Math.floor(Date.now() / 1000),
+    iat,
+    exp: iat + getUserTokenTtlSeconds(),
   };
   const payloadB64 = base64UrlEncode(JSON.stringify(payload));
   const sigB64 = signPayloadB64(payloadB64);
@@ -73,6 +81,10 @@ export function verifyUserToken(token) {
     const payloadJson = base64UrlDecodeToString(payloadB64);
     const payload = JSON.parse(payloadJson);
     if (!payload || payload.v !== 1 || typeof payload.uid !== 'string') return null;
+    if (typeof payload.exp === 'number') {
+      const now = Math.floor(Date.now() / 1000);
+      if (payload.exp <= now) return null;
+    }
     return payload;
   } catch {
     return null;
