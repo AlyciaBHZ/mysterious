@@ -2,14 +2,23 @@ import * as React from "react";
 
 import { cn } from "./utils";
 
-function Card({ className, ...props }: React.ComponentProps<"div">) {
+const GOLD = "#d4af37";
+
+function Card({ className, style, ...props }: React.ComponentProps<"div">) {
   return (
     <div
       data-slot="card"
       className={cn(
-        "bg-card text-card-foreground flex flex-col gap-6 rounded-xl border",
+        "flex flex-col gap-6 rounded-xl border",
         className,
       )}
+      style={{
+        backgroundColor: 'var(--card)',
+        color: 'var(--card-foreground)',
+        borderColor: `${GOLD}33`,
+        backdropFilter: 'blur(8px)',
+        ...style,
+      }}
       {...props}
     />
   );
@@ -28,21 +37,23 @@ function CardHeader({ className, ...props }: React.ComponentProps<"div">) {
   );
 }
 
-function CardTitle({ className, ...props }: React.ComponentProps<"div">) {
+function CardTitle({ className, style, ...props }: React.ComponentProps<"div">) {
   return (
     <h4
       data-slot="card-title"
       className={cn("leading-none", className)}
+      style={{ color: '#f5f5f5', ...style }}
       {...props}
     />
   );
 }
 
-function CardDescription({ className, ...props }: React.ComponentProps<"div">) {
+function CardDescription({ className, style, ...props }: React.ComponentProps<"div">) {
   return (
     <p
       data-slot="card-description"
-      className={cn("text-muted-foreground", className)}
+      className={cn(className)}
+      style={{ color: '#a3a3a3', ...style }}
       {...props}
     />
   );
