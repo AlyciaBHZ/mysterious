@@ -74,13 +74,18 @@ export default function App() {
   const [showRedeemCode, setShowRedeemCode] = useState(false);
   const [showSidebar, setShowSidebar] = useState(false);
   const [showAuth, setShowAuth] = useState(false);
-  const [authedEmail, setAuthedEmail] = useState<string | null>(null);
+  const [authedUser, setAuthedUser] = useState<{ email?: string; phone?: string } | null>(null);
   const [pendingPlanId, setPendingPlanId] = useState<string | null>(null);
 
   const isLoggedIn = useMemo(() => {
     const t = localStorage.getItem('session_token');
     return Boolean(t);
-  }, [authedEmail]);
+  }, [authedUser]);
+  
+  // 显示用户标识（优先显示手机号）
+  const userDisplay = authedUser?.phone 
+    ? authedUser.phone.replace(/(\d{3})\d{4}(\d{4})/, '$1****$2')
+    : authedUser?.email || null;
 
   useEffect(() => {
     const sessionToken = localStorage.getItem('session_token');
@@ -110,7 +115,7 @@ export default function App() {
     }
 
     me().then((r) => {
-      if (r.ok && r.user?.email) setAuthedEmail(r.user.email);
+      if (r.ok && r.user) setAuthedUser(r.user);
     }).catch(() => {});
 
     getQuota().then((q) => {
@@ -374,7 +379,7 @@ export default function App() {
               style={{ border: `1px solid ${GOLD}33` }}
             >
               <User className="w-5 h-5" />
-              <span className="text-sm font-medium hidden sm:inline">{authedEmail ? '已登录' : '登录'}</span>
+              <span className="text-sm font-medium hidden sm:inline">{userDisplay || '登录'}</span>
             </button>
             
             {language === 'zh' && <UserManual />}
@@ -560,12 +565,12 @@ export default function App() {
         <SidebarSheet
           open={showSidebar}
           onClose={() => setShowSidebar(false)}
-          authedEmail={authedEmail}
+          authedUser={userDisplay}
           onOpenAuth={() => setShowAuth(true)}
           onLogout={() => {
             localStorage.removeItem('session_token');
             localStorage.removeItem('user_token');
-            setAuthedEmail(null);
+            setAuthedUser(null);
             localStorage.setItem('guest_mode', '1');
             QuotaManager.setQuotaFromServer({ plan: 'guest', total: 3, remaining: 3 });
             setUserQuota(QuotaManager.getQuota());
@@ -587,7 +592,7 @@ export default function App() {
           onClose={() => setShowAuth(false)}
           onAuthed={() => {
             me().then((r) => {
-              if (r.ok && r.user?.email) setAuthedEmail(r.user.email);
+              if (r.ok && r.user) setAuthedUser(r.user);
             }).catch(() => {});
             getQuota().then((q) => {
               if (q.ok && q.plan && typeof q.total === 'number' && typeof q.remaining === 'number') {

@@ -143,6 +143,44 @@ export async function getQuota(): Promise<{ ok: boolean; plan?: string; total?: 
 // Auth (user system)
 // -------------------------
 
+/**
+ * 发送短信验证码
+ */
+export async function sendSmsCode(phone: string): Promise<{ ok: boolean; message?: string }> {
+  try {
+    const res = await fetch(`${API_BASE_URL}/auth/send-code`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ phone }),
+    });
+    const data = await res.json();
+    if (!res.ok || !data?.ok) return { ok: false, message: data?.message || '发送失败' };
+    return { ok: true, message: data?.message };
+  } catch (e) {
+    return { ok: false, message: e instanceof Error ? e.message : '网络错误' };
+  }
+}
+
+/**
+ * 手机号 + 验证码登录（自动注册）
+ */
+export async function loginWithPhone(phone: string, code: string): Promise<{ ok: boolean; message?: string; token?: string; isNew?: boolean }> {
+  try {
+    const res = await fetch(`${API_BASE_URL}/auth/login-phone`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ phone, code }),
+    });
+    const data = await res.json();
+    if (!res.ok || !data?.ok) return { ok: false, message: data?.message || '登录失败' };
+    if (data?.token) localStorage.setItem('session_token', data.token);
+    return { ok: true, token: data?.token, isNew: data?.isNew };
+  } catch (e) {
+    return { ok: false, message: e instanceof Error ? e.message : '网络错误' };
+  }
+}
+
+// 保留邮箱登录（兼容旧用户）
 export async function register(email: string, password: string): Promise<{ ok: boolean; message?: string; token?: string }> {
   try {
     const res = await fetch(`${API_BASE_URL}/auth/register`, {
@@ -175,7 +213,7 @@ export async function login(email: string, password: string): Promise<{ ok: bool
   }
 }
 
-export async function me(): Promise<{ ok: boolean; user?: { email: string } }> {
+export async function me(): Promise<{ ok: boolean; user?: { email?: string; phone?: string } }> {
   const session = safeGetLocalStorageItem('session_token');
   if (!session) return { ok: false };
   try {

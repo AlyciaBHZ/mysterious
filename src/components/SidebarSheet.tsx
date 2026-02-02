@@ -14,19 +14,19 @@ const GOLD_LIGHT = "#f5d061";
 export function SidebarSheet(props: {
   open: boolean;
   onClose: () => void;
-  authedEmail: string | null;
+  authedUser: string | null;
   onOpenAuth: () => void;
   onLogout: () => void;
   onLoad: (payload: { question: string; answer: string }) => void;
 }) {
-  const { open, onClose, authedEmail, onOpenAuth, onLogout, onLoad } = props;
+  const { open, onClose, authedUser, onOpenAuth, onLogout, onLoad } = props;
   const [items, setItems] = useState<Array<any>>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string>('');
 
   useEffect(() => {
     if (!open) return;
-    if (!authedEmail) {
+    if (!authedUser) {
       setItems([]);
       setError('');
       return;
@@ -43,7 +43,7 @@ export function SidebarSheet(props: {
         setItems(r.items || []);
       })
       .finally(() => setLoading(false));
-  }, [open, authedEmail]);
+  }, [open, authedUser]);
 
   const handleLoad = async (id: string) => {
     setLoading(true);
@@ -107,22 +107,22 @@ export function SidebarSheet(props: {
               <div 
                 className="w-12 h-12 rounded-xl flex items-center justify-center"
                 style={{ 
-                  background: authedEmail 
+                  background: authedUser 
                     ? `linear-gradient(135deg, ${GOLD} 0%, ${GOLD_LIGHT} 100%)`
                     : 'rgba(64,64,64,0.5)',
                 }}
               >
-                <User className={`w-6 h-6 ${authedEmail ? 'text-black' : 'text-stone-500'}`} />
+                <User className={`w-6 h-6 ${authedUser ? 'text-black' : 'text-stone-500'}`} />
               </div>
               <div className="min-w-0 flex-1">
                 <div className="text-xs text-stone-500 mb-0.5">当前身份</div>
                 <div className="font-semibold text-stone-100 truncate">
-                  {authedEmail ? authedEmail : '游客'}
+                  {authedUser ? authedUser : '游客'}
                 </div>
               </div>
             </div>
 
-            {!authedEmail ? (
+            {!authedUser ? (
               <Button 
                 onClick={onOpenAuth} 
                 className="w-full font-bold rounded-lg"
@@ -164,7 +164,7 @@ export function SidebarSheet(props: {
                 <History className="w-4 h-4" style={{ color: GOLD }} />
                 历史记录
               </div>
-              {!authedEmail && (
+              {!authedUser && (
                 <span className="text-xs text-stone-600">登录后可用</span>
               )}
             </div>
@@ -189,7 +189,7 @@ export function SidebarSheet(props: {
                 </div>
               )}
 
-              {authedEmail && items.map((it) => (
+              {authedUser && items.map((it) => (
                 <button
                   key={it.id}
                   type="button"
@@ -222,14 +222,14 @@ export function SidebarSheet(props: {
                 </button>
               ))}
 
-              {authedEmail && !loading && items.length === 0 && !error && (
+              {authedUser && !loading && items.length === 0 && !error && (
                 <div className="flex flex-col items-center justify-center py-12 text-center">
                   <History className="w-10 h-10 text-stone-700 mb-3" />
                   <p className="text-stone-600 text-sm">暂无历史记录</p>
                 </div>
               )}
 
-              {!authedEmail && (
+              {!authedUser && (
                 <div className="flex flex-col items-center justify-center py-12 text-center">
                   <div 
                     className="w-14 h-14 rounded-xl flex items-center justify-center mb-4"

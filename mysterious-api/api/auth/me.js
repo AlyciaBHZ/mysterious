@@ -22,15 +22,29 @@ export default async function handler(req, res) {
  
     if (hasRedis()) {
       const userKey = `auth:user:${session.uid}`;
-      const values = await redisCmd(['HMGET', userKey, 'email', 'createdAt']);
-      const [email, createdAt] = Array.isArray(values) ? values : [];
-      return res.json({ ok: true, user: { uid: session.uid, email: email || session.email, createdAt: createdAt || null } });
+      const values = await redisCmd(['HMGET', userKey, 'email', 'phone', 'createdAt']);
+      const [email, phone, createdAt] = Array.isArray(values) ? values : [];
+      
+      return res.json({ 
+        ok: true, 
+        user: { 
+          uid: session.uid, 
+          email: email || session.email || null,
+          phone: phone || session.phone || null,
+          createdAt: createdAt || null,
+        },
+      });
     }
  
     const u = memoryAuthUsers.get(session.uid);
     return res.json({
       ok: true,
-      user: { uid: session.uid, email: u?.email || session.email, createdAt: u?.createdAt || null },
+      user: { 
+        uid: session.uid, 
+        email: u?.email || session.email || null,
+        phone: u?.phone || session.phone || null,
+        createdAt: u?.createdAt || null,
+      },
       storage: 'memory',
     });
   } catch (err) {
@@ -41,4 +55,3 @@ export default async function handler(req, res) {
     });
   }
 }
- 

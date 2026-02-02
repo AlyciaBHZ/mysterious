@@ -1,45 +1,96 @@
 /**
- * 登录/注册弹窗 - 大气神秘风格
+ * 登录/注册弹窗 - 手机号 + 验证码
  */
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Dialog, DialogContent } from './ui/dialog';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
-import { login, register } from '../services/api';
-import { User, Mail, Lock, LogIn, UserPlus, Sparkles, Eye, EyeOff } from 'lucide-react';
+import { loginWithPhone, sendSmsCode } from '../services/api';
+import { Smartphone, KeyRound, Sparkles, Shield } from 'lucide-react';
 
 const GOLD = "#d4af37";
 const GOLD_LIGHT = "#f5d061";
 
 export function AuthModal(props: { open: boolean; onClose: () => void; onAuthed: () => void }) {
   const { open, onClose, onAuthed } = props;
-  const [mode, setMode] = useState<'login' | 'register'>('login');
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
-  const [showPassword, setShowPassword] = useState(false);
+  const [phone, setPhone] = useState('');
+  const [code, setCode] = useState('');
   const [loading, setLoading] = useState(false);
-  const [msg, setMsg] = useState<string>('');
+  const [sendingCode, setSendingCode] = useState(false);
+  const [countdown, setCountdown] = useState(0);
+  const [msg, setMsg] = useState<{ type: 'error' | 'success'; text: string } | null>(null);
 
-  const submit = async () => {
-    setLoading(true);
-    setMsg('');
+  // 验证码倒计时
+  useEffect(() => {
+    if (countdown <= 0) return;
+    const timer = setTimeout(() => setCountdown(countdown - 1), 1000);
+    return () => clearTimeout(timer);
+  }, [countdown]);
+
+  // 验证手机号格式
+  const isValidPhone = (p: string) => /^1[3-9]\d{9}$/.test(p);
+
+  // 发送验证码
+  const handleSendCode = async () => {
+    if (!isValidPhone(phone)) {
+      setMsg({ type: 'error', text: '请输入正确的手机号' });
+      return;
+    }
+
+    setSendingCode(true);
+    setMsg(null);
+
     try {
-      const r = mode === 'login' ? await login(email, password) : await register(email, password);
+      const r = await sendSmsCode(phone);
       if (!r.ok) {
-        setMsg(r.message || '操作失败');
+        setMsg({ type: 'error', text: r.message || '发送失败' });
         return;
       }
-      onAuthed();
-      onClose();
+      setMsg({ type: 'success', text: '验证码已发送' });
+      setCountdown(60);
+    } catch (err) {
+      setMsg({ type: 'error', text: '发送失败，请稍后重试' });
+    } finally {
+      setSendingCode(false);
+    }
+  };
+
+  // 登录/注册
+  const handleSubmit = async () => {
+    if (!isValidPhone(phone)) {
+      setMsg({ type: 'error', text: '请输入正确的手机号' });
+      return;
+    }
+    if (!code || code.length < 4) {
+      setMsg({ type: 'error', text: '请输入验证码' });
+      return;
+    }
+
+    setLoading(true);
+    setMsg(null);
+
+    try {
+      const r = await loginWithPhone(phone, code);
+      if (!r.ok) {
+        setMsg({ type: 'error', text: r.message || '登录失败' });
+        return;
+      }
+      setMsg({ type: 'success', text: r.isNew ? '注册成功！' : '登录成功！' });
+      setTimeout(() => {
+        onAuthed();
+        onClose();
+      }, 500);
+    } catch (err) {
+      setMsg({ type: 'error', text: '操作失败，请稍后重试' });
     } finally {
       setLoading(false);
     }
   };
 
   const handleKeyPress = (e: React.KeyboardEvent) => {
-    if (e.key === 'Enter' && email && password) {
-      submit();
+    if (e.key === 'Enter' && phone && code) {
+      handleSubmit();
     }
   };
 
@@ -77,144 +128,132 @@ export function AuthModal(props: { open: boolean; onClose: () => void; onAuthed:
                 boxShadow: `0 10px 40px ${GOLD}4d`,
               }}
             >
-              <User className="w-10 h-10 text-black" />
+              <Smartphone className="w-10 h-10 text-black" />
             </div>
           </div>
 
           {/* 标题 */}
           <div className="text-center mb-8">
-            <h2 className="text-2xl font-bold text-stone-100 mb-2">
-              {mode === 'login' ? '欢迎回来' : '创建账号'}
-            </h2>
+            <h2 className="text-2xl font-bold text-stone-100 mb-2">手机号登录</h2>
             <p className="text-stone-500 text-sm">
-              {mode === 'login' ? '登录以同步您的解卦历史' : '注册后每月享有免费额度'}
+              未注册的手机号将自动创建账号
             </p>
-          </div>
-
-          {/* 模式切换 */}
-          <div 
-            className="flex rounded-xl p-1 mb-6"
-            style={{ backgroundColor: 'rgba(38,38,38,0.6)' }}
-          >
-            <button
-              type="button"
-              onClick={() => { setMode('login'); setMsg(''); }}
-              className="flex-1 py-2.5 rounded-lg text-sm font-medium transition-all duration-300 flex items-center justify-center gap-2"
-              style={mode === 'login' ? {
-                background: `linear-gradient(135deg, ${GOLD} 0%, ${GOLD_LIGHT} 100%)`,
-                color: '#000',
-              } : {
-                color: '#737373',
-              }}
-            >
-              <LogIn className="w-4 h-4" />
-              登录
-            </button>
-            <button
-              type="button"
-              onClick={() => { setMode('register'); setMsg(''); }}
-              className="flex-1 py-2.5 rounded-lg text-sm font-medium transition-all duration-300 flex items-center justify-center gap-2"
-              style={mode === 'register' ? {
-                background: `linear-gradient(135deg, ${GOLD} 0%, ${GOLD_LIGHT} 100%)`,
-                color: '#000',
-              } : {
-                color: '#737373',
-              }}
-            >
-              <UserPlus className="w-4 h-4" />
-              注册
-            </button>
           </div>
 
           {/* 表单 */}
           <div className="space-y-4 mb-6">
-            {/* 邮箱 */}
+            {/* 手机号 */}
             <div className="relative">
               <div 
-                className="absolute left-4 top-1/2 -translate-y-1/2"
-                style={{ color: `${GOLD}99` }}
+                className="absolute left-4 top-1/2 -translate-y-1/2 text-stone-500"
               >
-                <Mail className="w-5 h-5" />
+                +86
               </div>
               <Input 
-                type="email"
-                value={email} 
-                onChange={(e) => setEmail(e.target.value)} 
+                type="tel"
+                value={phone} 
+                onChange={(e) => setPhone(e.target.value.replace(/\D/g, '').slice(0, 11))} 
                 onKeyPress={handleKeyPress}
-                placeholder="邮箱地址"
-                className="pl-12 py-4 text-stone-100 placeholder:text-stone-600 rounded-xl"
+                placeholder="请输入手机号"
+                className="pl-14 py-4 text-stone-100 placeholder:text-stone-600 rounded-xl text-lg tracking-wider"
                 style={{ 
                   backgroundColor: 'rgba(38,38,38,0.6)', 
                   border: `1px solid ${GOLD}33`,
-                  height: '52px',
+                  height: '56px',
                 }}
               />
             </div>
 
-            {/* 密码 */}
-            <div className="relative">
-              <div 
-                className="absolute left-4 top-1/2 -translate-y-1/2"
-                style={{ color: `${GOLD}99` }}
-              >
-                <Lock className="w-5 h-5" />
+            {/* 验证码 */}
+            <div className="flex gap-3">
+              <div className="relative flex-1">
+                <div 
+                  className="absolute left-4 top-1/2 -translate-y-1/2"
+                  style={{ color: `${GOLD}99` }}
+                >
+                  <KeyRound className="w-5 h-5" />
+                </div>
+                <Input
+                  type="text"
+                  value={code}
+                  onChange={(e) => setCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                  onKeyPress={handleKeyPress}
+                  placeholder="验证码"
+                  className="pl-12 py-4 text-stone-100 placeholder:text-stone-600 rounded-xl text-lg tracking-[0.3em] text-center"
+                  style={{ 
+                    backgroundColor: 'rgba(38,38,38,0.6)', 
+                    border: `1px solid ${GOLD}33`,
+                    height: '56px',
+                  }}
+                />
               </div>
-              <Input
-                type={showPassword ? 'text' : 'password'}
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                onKeyPress={handleKeyPress}
-                placeholder={mode === 'register' ? '密码（至少6位）' : '密码'}
-                className="pl-12 pr-12 py-4 text-stone-100 placeholder:text-stone-600 rounded-xl"
-                style={{ 
-                  backgroundColor: 'rgba(38,38,38,0.6)', 
-                  border: `1px solid ${GOLD}33`,
-                  height: '52px',
-                }}
-              />
-              <button
+              <Button
                 type="button"
-                onClick={() => setShowPassword(!showPassword)}
-                className="absolute right-4 top-1/2 -translate-y-1/2 text-stone-500 hover:text-stone-300 transition-colors"
+                onClick={handleSendCode}
+                disabled={sendingCode || countdown > 0 || !isValidPhone(phone)}
+                className="px-5 rounded-xl font-medium whitespace-nowrap disabled:opacity-50"
+                style={{ 
+                  backgroundColor: countdown > 0 ? 'rgba(64,64,64,0.5)' : 'rgba(212,175,55,0.2)',
+                  border: `1px solid ${countdown > 0 ? '#404040' : GOLD}66`,
+                  color: countdown > 0 ? '#737373' : GOLD,
+                  height: '56px',
+                  minWidth: '120px',
+                }}
               >
-                {showPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
-              </button>
+                {sendingCode ? (
+                  <span className="w-5 h-5 border-2 border-current/30 border-t-current rounded-full animate-spin" />
+                ) : countdown > 0 ? (
+                  `${countdown}s`
+                ) : (
+                  '获取验证码'
+                )}
+              </Button>
             </div>
           </div>
 
-          {/* 错误提示 */}
+          {/* 消息提示 */}
           {msg && (
             <div 
-              className="mb-6 p-3 rounded-xl text-sm text-red-300"
-              style={{ backgroundColor: 'rgba(127,29,29,0.3)', border: '1px solid rgba(239,68,68,0.3)' }}
+              className="mb-6 p-3 rounded-xl text-sm flex items-center gap-2"
+              style={{ 
+                backgroundColor: msg.type === 'success' ? 'rgba(20,83,45,0.3)' : 'rgba(127,29,29,0.3)', 
+                border: `1px solid ${msg.type === 'success' ? 'rgba(34,197,94,0.3)' : 'rgba(239,68,68,0.3)'}`,
+                color: msg.type === 'success' ? '#86efac' : '#fca5a5',
+              }}
             >
-              {msg}
+              {msg.text}
             </div>
           )}
 
           {/* 提交按钮 */}
           <Button 
-            onClick={submit} 
-            disabled={loading || !email || !password} 
+            onClick={handleSubmit} 
+            disabled={loading || !phone || !code} 
             className="w-full font-bold py-4 rounded-xl text-lg shadow-lg disabled:opacity-50"
             style={{
               ...btnStyle,
               boxShadow: `0 10px 40px ${GOLD}33`,
-              height: '52px',
+              height: '56px',
             }}
           >
             {loading ? (
               <span className="flex items-center gap-2">
                 <span className="w-5 h-5 border-2 border-black/30 border-t-black rounded-full animate-spin"></span>
-                处理中...
+                登录中...
               </span>
             ) : (
               <span className="flex items-center gap-2">
                 <Sparkles className="w-5 h-5" />
-                {mode === 'login' ? '登录' : '注册'}
+                登录 / 注册
               </span>
             )}
           </Button>
+
+          {/* 安全提示 */}
+          <div className="mt-6 flex items-center justify-center gap-2 text-xs text-stone-600">
+            <Shield className="w-4 h-4" />
+            <span>验证码 5 分钟内有效，请勿泄露</span>
+          </div>
 
           {/* 分隔线 */}
           <div className="relative my-6">
